@@ -1,0 +1,10 @@
+{
+  "name": "Sound Improvisation",
+  "description": "An interactive sound improvisation app that records your sounds and plays back creative answers with pitch, reverb, delay, and crazy modulation effects based on an adjustable intensity slider.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

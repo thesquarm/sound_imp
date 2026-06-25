@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-studio-bg: #F8F6F2;
+  --color-studio-panel: #FFFFFF;
+  --color-studio-text: #1E2229;
+  --color-studio-accent: #E55B3C; /* Warm coral accent */
+  --color-studio-accent-hover: #D04A2B;
+  --color-studio-muted: #7A8293;
+  --color-studio-border: #1E2229; /* Crisp high-contrast retro border */
+}
+
+/* Custom styles for glowing animations and interactive elements */
+@keyframes studio-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.4;
+  }
+}
+
+.animate-studio-pulse {
+  animation: studio-pulse 2s infinite ease-in-out;
+}
+
+/* Vintage workbench grid pattern */
+.studio-grid {
+  background-color: var(--color-studio-bg);
+  background-image: radial-gradient(rgba(30, 34, 41, 0.09) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Retro flat 3D shadow */
+.retro-shadow {
+  box-shadow: 4px 4px 0px 0px var(--color-studio-border);
+}
+
+.retro-shadow-sm {
+  box-shadow: 2px 2px 0px 0px var(--color-studio-border);
+}
+
+.retro-shadow-lg {
+  box-shadow: 6px 6px 0px 0px var(--color-studio-border);
+}
+
+/* For beautiful custom sliders */
+input[type="range"] {
+  accent-color: var(--color-studio-accent);
+}
+
