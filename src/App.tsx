@@ -14,7 +14,8 @@ import {
   Maximize2,
   Upload,
   Download,
-  Trash2
+  Trash2,
+  Sparkles
 } from 'lucide-react';
 import { AudioState, ImprovRound } from './types';
 import { SoundImproEngine } from './utils/audioEngine';
@@ -40,6 +41,15 @@ export default function App() {
   const [onsetThreshold, setOnsetThreshold] = useState<number>(22); // mapped to 0.022
   const [silenceThreshold, setSilenceThreshold] = useState<number>(12); // mapped to 0.012
   const [pauseDurationMs, setPauseDurationMs] = useState<number>(1200);
+  const [chanceEffects, setChanceEffects] = useState({
+    pitch: true,
+    reverb: true,
+    delay: true,
+    vibrato: true,
+    ringmod: true,
+    distortion: true,
+    filter: true
+  });
   const [showInspirationBox, setShowInspirationBox] = useState<boolean>(false);
   const [extraPads, setExtraPads] = useState<any[]>([]);
   const [downloadUrls, setDownloadUrls] = useState<{
@@ -101,6 +111,7 @@ export default function App() {
     engine.setOnsetThreshold(onsetThreshold / 1000);
     engine.setSilenceThreshold(silenceThreshold / 1000);
     engine.setPauseDurationMs(pauseDurationMs);
+    engine.setEnabledRandomEffects(chanceEffects);
 
     engineRef.current = engine;
 
@@ -120,6 +131,14 @@ export default function App() {
       droneOscsRef.current = {};
     };
   }, []);
+
+  // Sync active drone pads to engine
+  useEffect(() => {
+    if (engineRef.current) {
+      const activeFreqs = extraPads.filter(pad => pad.isPlaying).map(pad => pad.freq);
+      engineRef.current.updateActiveDrones(activeFreqs);
+    }
+  }, [extraPads]);
 
   // Sync state functions
   const handleIntensityChange = (val: number) => {
@@ -180,28 +199,45 @@ export default function App() {
 
   // Add extra ambient pad
   const addExtraPad = () => {
-    const padIndex = extraPads.length + 4;
-    const colors = [
-      { name: 'Warm Terracotta', bg: 'bg-[#d4b2a7]' },
-      { name: 'Sunny Peach', bg: 'bg-[#e5c4a5]' },
-      { name: 'Vintage Slate Blue', bg: 'bg-[#a3b1bf]' }
+    const droneTemplates = [
+      { freq: 110.0, name: 'Deep Root A2', color: { name: 'Suspense Crimson', bg: 'bg-[#b85a5a]' } },
+      { freq: 130.8, name: 'Dark Minor Third C3', color: { name: 'Cold Mist Slate', bg: 'bg-[#8a9ca8]' } },
+      { freq: 146.8, name: 'Suspended Fourth D3', color: { name: 'Tension Amber', bg: 'bg-[#ba9e68]' } },
+      { freq: 155.6, name: 'Tension Tritone D#3', color: { name: 'Screaming Purple', bg: 'bg-[#988bb5]' } },
+      { freq: 174.6, name: 'Dramatic Minor Sixth F3', color: { name: 'Dark Forest Sage', bg: 'bg-[#969e7f]' } },
+      { freq: 196.0, name: 'Moody Minor Seventh G3', color: { name: 'Gloomy Clay', bg: 'bg-[#cfa588]' } },
+      { freq: 246.9, name: 'Tension Ninth B3', color: { name: 'Eerie Ochre', bg: 'bg-[#c2aa72]' } }
     ];
-    const color = colors[extraPads.length % colors.length];
-    
-    // Pick different frequencies for beautiful major/minor chord components
-    const freqs = [110, 165, 220, 275, 330, 440];
-    const freq = freqs[extraPads.length % freqs.length];
+
+    const template = droneTemplates[extraPads.length % droneTemplates.length];
     
     const newPad = {
       id: `pad-${Date.now()}`,
-      name: `PAD ${padIndex}`,
-      colorClass: color.bg,
-      colorName: color.name,
-      freq,
+      name: template.name,
+      colorClass: template.color.bg,
+      colorName: template.color.name,
+      freq: template.freq,
       isPlaying: false,
     };
     
     setExtraPads([...extraPads, newPad]);
+  };
+
+  const handleCentralNodeClick = () => {
+    if (audioState === 'playing_answer' && engineRef.current) {
+      engineRef.current.skipReplyingAndStartNewRound();
+    }
+  };
+
+  const handleChanceEffectToggle = (key: keyof typeof chanceEffects) => {
+    const updated = {
+      ...chanceEffects,
+      [key]: !chanceEffects[key]
+    };
+    setChanceEffects(updated);
+    if (engineRef.current) {
+      engineRef.current.setEnabledRandomEffects(updated);
+    }
   };
 
   // Toggle ambient synthesizer drone
@@ -369,11 +405,11 @@ export default function App() {
   const intensityInfo = getIntensityLabel(intensity);
 
   return (
-    <div id="sound_impro_app" className="min-h-screen bg-[#FAF6ED] text-zinc-950 font-sans selection:bg-zinc-950/10 flex flex-col antialiased">
+    <div id="sound_imp_app" className="min-h-screen bg-[#FAF6ED] text-zinc-950 font-sans selection:bg-zinc-950/10 flex flex-col antialiased">
       {/* Visual Title / Header following soundcomp look exactly */}
       <header className="py-8 px-4 flex flex-col items-center">
         <h1 className="font-display font-black text-5xl md:text-6xl text-zinc-950 tracking-tight text-center uppercase select-none">
-          sound_impro
+          sound_imp
         </h1>
         
         <p className="text-xs text-zinc-600 font-mono tracking-widest uppercase text-center mt-2.5 font-bold select-none">
@@ -474,9 +510,8 @@ export default function App() {
           
           {/* LEFT COLUMN: Improv Core & Controls (7 columns) */}
           <div className="lg:col-span-7 flex flex-col gap-6">
-            
-            {/* Bento Block 1: Improv Engine State Circle */}
-            <div className="bg-[#b3b19a] border-2 border-zinc-950 rounded-none p-6 retro-shadow flex flex-col items-center justify-center relative overflow-hidden min-h-[320px] transition-all duration-300">
+                 {/* Bento Block 1: Improv Engine State Circle */}
+            <div className="bg-[#b3b19a] border-2 border-zinc-950 rounded-none p-6 retro-shadow flex flex-col justify-between items-center relative overflow-hidden min-h-[440px] transition-all duration-300">
               
               {/* Soft background decor based on state */}
               <div className="absolute inset-0 pointer-events-none opacity-20">
@@ -487,160 +522,204 @@ export default function App() {
                 }`} />
               </div>
 
-              <AnimatePresence mode="wait">
-                {audioState === 'idle' ? (
-                  // IDLE VIEW: Start Session Trigger
-                  <motion.div 
-                    key="idle"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="flex flex-col items-center text-center gap-5 z-10"
-                  >
-                    <div className="h-16 w-16 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce">
-                      <Mic className="h-8 w-8 text-zinc-950" />
-                    </div>
-                    <div>
-                      <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Improvise with Machine Synthesis</h2>
-                      <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1.5 leading-relaxed font-bold">
-                        Say a word, sing a tone, whistle or clap! The engine auto-detects sound pauses, processes your inputs with custom modular effects, and plays back its creative response.
-                      </p>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3 mt-1">
-                      <button
-                        onClick={() => startSession(false)}
-                        className="bg-[#FAF6ED] hover:bg-[#FAF3D1] text-zinc-950 border-2 border-zinc-950 px-6 py-3 font-mono font-bold tracking-tight shadow-md retro-shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer rounded-none uppercase"
-                      >
-                        <Play className="h-4 w-4 fill-current text-zinc-950" />
-                        Start Session Only
-                      </button>
-                      <button
-                        onClick={() => startSession(true)}
-                        className="bg-rose-600 hover:bg-rose-700 text-white border-2 border-zinc-950 px-6 py-3 font-mono font-bold tracking-tight shadow-md retro-shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer rounded-none uppercase"
-                      >
-                        <span className="h-2.5 w-2.5 rounded-full bg-white shrink-0 animate-pulse" />
-                        Start & Record Session
-                      </button>
-                    </div>
-                  </motion.div>
-                ) : (
-                  // ACTIVE RUNNING VIEW: Displays current state cues
-                  <motion.div 
-                    key="active"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="w-full flex flex-col items-center gap-6 z-10"
-                  >
-                    {/* The Giant Audio Pulse Ring */}
-                    <div className="relative flex items-center justify-center h-40 w-40">
-                      
-                      {/* State outer ripple circle */}
-                      <div className={`absolute inset-0 rounded-full transition-all duration-700 border-2 ${
-                        audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-900 scale-100' :
-                        audioState === 'recording_sound' ? 'border-rose-600 animate-pulse' :
-                        audioState === 'playing_answer' ? 'border-zinc-950 animate-pulse' : 'border-zinc-500 scale-90'
-                      }`} />
-
-                      <div className={`absolute inset-3 rounded-full transition-all duration-700 border ${
-                        audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-800' :
-                        audioState === 'recording_sound' ? 'border-rose-600/30 bg-rose-50/10 scale-105' :
-                        audioState === 'playing_answer' ? 'border-zinc-950/30 bg-zinc-950/10 scale-105' : 'border-zinc-600'
-                      }`} />
-
-                      {/* State Central Node Core */}
-                      <div className={`h-26 w-26 rounded-full flex flex-col items-center justify-center text-[#FAF6ED] transition-all duration-500 shadow-md border-2 border-zinc-950 ${
-                        audioState === 'initializing' ? 'bg-zinc-400' :
-                        audioState === 'waiting_for_sound' ? 'bg-zinc-950' :
-                        audioState === 'recording_sound' ? 'bg-rose-600 scale-105' :
-                        audioState === 'processing' ? 'bg-amber-500 animate-pulse' :
-                        audioState === 'playing_answer' ? 'bg-zinc-950 scale-105' : 'bg-zinc-50'
-                      }`}>
-                        {audioState === 'initializing' && <span className="text-[10px] font-mono tracking-widest font-black uppercase">BOOTING</span>}
+              {/* Top/Center content */}
+              <div className="w-full flex flex-col items-center justify-center flex-1 z-10 py-4">
+                <AnimatePresence mode="wait">
+                  {audioState === 'idle' ? (
+                    // IDLE VIEW: Start Session Trigger
+                    <motion.div 
+                      key="idle"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="flex flex-col items-center text-center gap-4"
+                    >
+                      <div className="h-14 w-14 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce">
+                        <Mic className="h-7 w-7 text-zinc-950" />
+                      </div>
+                      <div>
+                        <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Improvise with Machine Synthesis</h2>
+                        <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1 leading-relaxed font-bold">
+                          Say a word, sing a tone, whistle or clap! The engine auto-detects sound pauses, processes your inputs with custom modular effects, and plays back its creative response.
+                        </p>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    // ACTIVE RUNNING VIEW: Displays current state cues
+                    <motion.div 
+                      key="active"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="w-full flex flex-col items-center gap-5"
+                    >
+                      {/* The Giant Audio Pulse Ring */}
+                      <div className="relative flex items-center justify-center h-36 w-36">
                         
-                        {audioState === 'waiting_for_sound' && (
-                          <div className="flex flex-col items-center gap-1.5 animate-pulse">
-                            <Mic className="h-6 w-6 text-white" />
-                            <span className="text-[8px] font-mono tracking-widest uppercase">SPEAK NOW</span>
-                          </div>
-                        )}
+                        {/* State outer ripple circle */}
+                        <div className={`absolute inset-0 rounded-full transition-all duration-700 border-2 ${
+                          audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-900 scale-100' :
+                          audioState === 'recording_sound' ? 'border-rose-600 animate-pulse' :
+                          audioState === 'playing_answer' ? 'border-zinc-950 animate-pulse' : 'border-zinc-500 scale-90'
+                        }`} />
 
-                        {audioState === 'recording_sound' && (
-                          <div className="flex flex-col items-center gap-1">
-                            <div className="h-2 w-2 rounded-full bg-white animate-ping" />
-                            <span className="text-[9px] font-mono tracking-widest font-black">RECORDING</span>
-                            <span className="text-[8px] font-mono opacity-90">
-                              {visualData.rms > 0 ? (visualData.rms * 100).toFixed(0) : '0'}% VOL
-                            </span>
-                          </div>
-                        )}
+                        <div className={`absolute inset-2.5 rounded-full transition-all duration-700 border ${
+                          audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-800' :
+                          audioState === 'recording_sound' ? 'border-rose-600/30 bg-rose-50/10 scale-105' :
+                          audioState === 'playing_answer' ? 'border-zinc-950/30 bg-zinc-950/10 scale-105' : 'border-zinc-600'
+                        }`} />
 
-                        {audioState === 'processing' && (
-                          <div className="flex flex-col items-center gap-1">
-                            <div className="flex gap-1">
-                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.3s]" />
-                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.15s]" />
-                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
+                        {/* State Central Node Core */}
+                        <button
+                          onClick={handleCentralNodeClick}
+                          disabled={audioState !== 'playing_answer'}
+                          title={audioState === 'playing_answer' ? 'Click to Stop Reply and Start New Round' : undefined}
+                          className={`h-24 w-24 rounded-full flex flex-col items-center justify-center text-[#FAF6ED] transition-all duration-500 shadow-md border-2 border-zinc-950 outline-none ${
+                            audioState === 'initializing' ? 'bg-zinc-400 cursor-not-allowed' :
+                            audioState === 'waiting_for_sound' ? 'bg-zinc-950 cursor-default' :
+                            audioState === 'recording_sound' ? 'bg-rose-600 scale-105 cursor-default' :
+                            audioState === 'processing' ? 'bg-amber-500 animate-pulse cursor-not-allowed' :
+                            audioState === 'playing_answer' ? 'bg-zinc-950 scale-105 hover:bg-zinc-800 cursor-pointer active:scale-95 hover:ring-4 hover:ring-zinc-950/25' : 'bg-zinc-50 cursor-default'
+                          }`}
+                        >
+                          {audioState === 'initializing' && <span className="text-[10px] font-mono tracking-widest font-black uppercase">BOOTING</span>}
+                          
+                          {audioState === 'waiting_for_sound' && (
+                            <div className="flex flex-col items-center gap-1 animate-pulse">
+                              <Mic className="h-5 w-5 text-white" />
+                              <span className="text-[8px] font-mono tracking-widest uppercase">MAKE A SOUND</span>
                             </div>
-                            <span className="text-[9px] font-mono tracking-widest">SYNTHESIZING</span>
-                          </div>
-                        )}
+                          )}
 
-                        {audioState === 'playing_answer' && (
-                          <div className="flex flex-col items-center gap-1.5">
-                            <Volume2 className="h-6 w-6 animate-pulse text-white" />
-                            <span className="text-[8px] font-mono tracking-widest uppercase text-white">REPLYING</span>
-                          </div>
-                        )}
+                          {audioState === 'recording_sound' && (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
+                              <span className="text-[8px] font-mono tracking-widest font-black">RECORDING</span>
+                              <span className="text-[8px] font-mono opacity-90">
+                                {visualData.rms > 0 ? (visualData.rms * 100).toFixed(0) : '0'}% VOL
+                              </span>
+                            </div>
+                          )}
+
+                          {audioState === 'processing' && (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="flex gap-1">
+                                <span className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:-0.3s]" />
+                                <span className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:-0.15s]" />
+                                <span className="h-1 w-1 rounded-full bg-white animate-bounce" />
+                              </div>
+                              <span className="text-[8px] font-mono tracking-widest">SYNTHESIZING</span>
+                            </div>
+                          )}
+
+                          {audioState === 'playing_answer' && (
+                            <div className="flex flex-col items-center gap-1">
+                              <Volume2 className="h-5 w-5 animate-pulse text-white" />
+                              <span className="text-[8px] font-mono tracking-widest uppercase text-white font-bold">SKIP REPLY</span>
+                              <span className="text-[6px] font-mono tracking-wider opacity-75 uppercase">STOP & NEXT</span>
+                            </div>
+                          )}
+                        </button>
                       </div>
-                    </div>
 
-                    {/* Interactive Text Prompt */}
-                    <div className="text-center px-4">
-                      <h3 className="font-display font-black text-2.5xl text-zinc-950 tracking-tight uppercase transition-colors duration-300">
-                        {audioState === 'initializing' && 'ARMING WORKBENCH...'}
-                        {audioState === 'waiting_for_sound' && 'Make a sound.'}
-                        {audioState === 'recording_sound' && 'Sound active... Recording...'}
-                        {audioState === 'processing' && 'Synthesizing creative answer...'}
-                        {audioState === 'playing_answer' && 'Responding...'}
-                      </h3>
-                      
-                      <p className="text-xs text-zinc-900 font-mono mt-1 max-w-[340px] mx-auto leading-relaxed h-5 font-bold">
-                        {audioState === 'waiting_for_sound' && 'Speak, whistle, sing or tap!'}
-                        {audioState === 'recording_sound' && 'Stop making sound to trigger playback.'}
-                        {audioState === 'processing' && 'Rendering audio effects graph offline...'}
-                        {audioState === 'playing_answer' && 'Listen to the modified replication.'}
-                      </p>
-                    </div>
-
-                    {/* Active effects overlay during playback */}
-                    {audioState === 'playing_answer' && activeEffects.length > 0 && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex flex-wrap gap-1.5 justify-center max-w-[380px] mt-1 animate-fade-in"
-                      >
-                        {activeEffects.map((eff, i) => (
-                          <span 
-                            key={i} 
-                            className="text-[10px] font-mono font-black bg-zinc-950 text-[#FAF6ED] px-2.5 py-1 border border-zinc-950 shadow-xs uppercase"
-                          >
-                            {eff}
-                          </span>
-                        ))}
-                      </motion.div>
-                    )}
-
-                    {/* Recording metadata tag */}
-                    {isRecording && (
-                      <div className="flex items-center gap-1.5 bg-rose-50 text-rose-700 px-3 py-1 border border-rose-900/30 text-[10px] font-mono font-bold uppercase tracking-wider mt-1">
-                        <span className="h-2 w-2 rounded-full bg-rose-600 animate-ping" />
-                        REC ACTIVE &bull; {recordedCount} ROUND{recordedCount !== 1 ? 'S' : ''} SAVED
+                      {/* Interactive Text Prompt */}
+                      <div className="text-center px-4">
+                        <h3 className="font-display font-black text-xl text-zinc-950 tracking-tight uppercase transition-colors duration-300">
+                          {audioState === 'initializing' && 'ARMING WORKBENCH...'}
+                          {audioState === 'waiting_for_sound' && 'Make a sound.'}
+                          {audioState === 'recording_sound' && 'Sound active... Recording...'}
+                          {audioState === 'processing' && 'Synthesizing creative answer...'}
+                          {audioState === 'playing_answer' && 'Responding...'}
+                        </h3>
+                        
+                        <p className="text-[11px] text-zinc-900 font-mono mt-0.5 max-w-[340px] mx-auto leading-relaxed h-5 font-bold">
+                          {audioState === 'waiting_for_sound' && 'Speak, whistle, sing or tap!'}
+                          {audioState === 'recording_sound' && 'Stop making sound to trigger playback.'}
+                          {audioState === 'processing' && 'Rendering audio effects graph offline...'}
+                          {audioState === 'playing_answer' && 'Listen to the modified replication.'}
+                        </p>
                       </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+
+                      {/* Active effects overlay during playback */}
+                      {audioState === 'playing_answer' && activeEffects.length > 0 && (
+                        <div className="flex flex-wrap gap-1 justify-center max-w-[340px]">
+                          {activeEffects.map((eff, i) => (
+                            <span 
+                              key={i} 
+                              className="text-[9px] font-mono font-black bg-zinc-950 text-[#FAF6ED] px-2 py-0.5 border border-zinc-950 shadow-xs uppercase"
+                            >
+                              {eff}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Recording metadata tag */}
+                      {isRecording && (
+                        <div className="flex items-center gap-1 bg-rose-50 text-rose-700 px-2.5 py-0.5 border border-rose-900/30 text-[9px] font-mono font-bold uppercase tracking-wider mt-0.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-600 animate-ping" />
+                          REC ACTIVE &bull; {recordedCount} ROUND{recordedCount !== 1 ? 'S' : ''} SAVED
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* INTEGRATED SESSION CONTROL DESK */}
+              <div className="w-full mt-4 pt-4 border-t-2 border-zinc-950/20 z-10 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-mono font-black uppercase text-zinc-900 tracking-wider">
+                    Session Control Desk
+                  </span>
+                  {isRecording && (
+                    <span className="text-[8px] font-mono font-black text-rose-800 bg-rose-50 px-2 py-0.5 border border-rose-900/20 uppercase animate-pulse">
+                      Recording Active
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => startSession(false)}
+                    disabled={audioState !== 'idle'}
+                    className={`flex-1 font-mono text-[10px] font-black py-3 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
+                      audioState === 'idle'
+                        ? 'bg-[#FAF6ED] text-zinc-950 hover:bg-[#FAF3D1] cursor-pointer retro-shadow-xs'
+                        : 'bg-zinc-250/50 text-zinc-500 border-zinc-450 pointer-events-none opacity-50'
+                    }`}
+                  >
+                    <Play className="h-3 w-3 fill-current text-zinc-950" />
+                    <span>Start Session</span>
+                  </button>
+
+                  <button
+                    onClick={() => startSession(true)}
+                    disabled={audioState !== 'idle'}
+                    className={`flex-1 font-mono text-[10px] font-black py-3 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
+                      audioState === 'idle'
+                        ? 'bg-rose-600 text-white hover:bg-rose-700 cursor-pointer retro-shadow-xs'
+                        : 'bg-zinc-250/50 text-zinc-500 border-zinc-450 pointer-events-none opacity-50'
+                    }`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                    <span>Record Session</span>
+                  </button>
+
+                  <button
+                    onClick={stopSession}
+                    disabled={audioState === 'idle'}
+                    className={`flex-1 font-mono text-[10px] font-black py-3 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
+                      audioState !== 'idle'
+                        ? 'bg-zinc-950 text-white hover:bg-zinc-800 cursor-pointer retro-shadow-xs'
+                        : 'bg-zinc-150 text-zinc-300 border-zinc-200 pointer-events-none'
+                    }`}
+                  >
+                    <Square className="h-3 w-3 fill-current text-white" />
+                    <span>Stop & Export</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Bento Block 2: Synthesis Controls & Sliders */}
@@ -721,6 +800,81 @@ export default function App() {
                   </div>
                 </div>
 
+              </div>
+
+              {/* Box 3: Toggleable Chance Effects Selector pool */}
+              <div className="flex flex-col gap-3.5 p-5 bg-white border-2 border-zinc-950 rounded-none retro-shadow">
+                <div className="flex items-center justify-between border-b border-zinc-950/15 pb-2">
+                  <h4 className="text-xs font-mono font-black text-zinc-950 uppercase flex items-center gap-1.5 select-none">
+                    <Sparkles className="h-4 w-4 text-zinc-950 animate-pulse" />
+                    CHANCE EFFECTS POOL (ROLL GATE)
+                  </h4>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const allOn = { pitch: true, reverb: true, delay: true, vibrato: true, ringmod: true, distortion: true, filter: true };
+                        setChanceEffects(allOn);
+                        if (engineRef.current) engineRef.current.setEnabledRandomEffects(allOn);
+                      }}
+                      className="text-[9px] font-mono font-black hover:underline cursor-pointer uppercase text-zinc-600"
+                    >
+                      All On
+                    </button>
+                    <span className="text-zinc-400 font-mono text-[9px]">|</span>
+                    <button
+                      onClick={() => {
+                        const allOff = { pitch: false, reverb: false, delay: false, vibrato: false, ringmod: false, distortion: false, filter: false };
+                        setChanceEffects(allOff);
+                        if (engineRef.current) engineRef.current.setEnabledRandomEffects(allOff);
+                      }}
+                      className="text-[9px] font-mono font-black hover:underline cursor-pointer uppercase text-zinc-600"
+                    >
+                      All Off
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[10px] font-mono text-zinc-600 uppercase leading-snug font-bold">
+                  Toggle which DSP algorithms are randomized and applied to your sound during active improvisation. If all are disabled, audio remains completely clean.
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 mt-1">
+                  {[
+                    { key: 'pitch', label: 'Pitch Shift', desc: 'Chipmunk/Giant', icon: '🐿️' },
+                    { key: 'reverb', label: 'Reverb Space', desc: 'Ambient Room', icon: '🌌' },
+                    { key: 'delay', label: 'Echo Delay', desc: 'Slapback/Dub', icon: '⏱️' },
+                    { key: 'vibrato', label: 'Warble LFO', desc: 'Psychedelic Warble', icon: '🌀' },
+                    { key: 'ringmod', label: 'Ring Mod', desc: 'Metallic Robot', icon: '🤖' },
+                    { key: 'distortion', label: 'Fuzz Clipper', desc: 'Crunchy Overdrive', icon: '🔥' },
+                    { key: 'filter', label: 'Filter Sweep', desc: 'Sub/Radio Sweeps', icon: '📻' },
+                  ].map((item) => {
+                    const isChecked = chanceEffects[item.key as keyof typeof chanceEffects];
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handleChanceEffectToggle(item.key as keyof typeof chanceEffects)}
+                        className={`flex flex-col items-start p-2.5 border-2 border-zinc-950 transition-all select-none text-left cursor-pointer ${
+                          isChecked
+                            ? 'bg-[#FAF6ED] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                            : 'bg-zinc-50 border-dashed border-zinc-400 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 w-full justify-between">
+                          <span className="text-xs font-mono font-black text-zinc-950 flex items-center gap-1">
+                            <span>{item.icon}</span>
+                            <span>{item.label}</span>
+                          </span>
+                          <span className={`h-3.5 w-3.5 border border-zinc-950 rounded-none flex items-center justify-center text-[8px] font-black ${isChecked ? 'bg-zinc-950 text-white' : 'bg-transparent'}`}>
+                            {isChecked && '✓'}
+                          </span>
+                        </div>
+                        <span className="text-[8px] font-mono text-zinc-500 font-bold mt-1 uppercase">
+                          {item.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Extras Parameter panel for custom features in layout */}
@@ -842,58 +996,14 @@ export default function App() {
           {/* RIGHT COLUMN: History & Documentation / User Manual (5 columns) */}
           <div className="lg:col-span-5 flex flex-col gap-6">
             
-            {/* Session Action Control Capsule bar located elegantly above the history */}
-            <div className="bg-white border-2 border-zinc-950 p-4 retro-shadow rounded-none flex flex-col gap-3">
-              <span className="text-[10px] font-mono font-black uppercase text-zinc-500 tracking-wider">
-                Session Control Desk
-              </span>
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => startSession(false)}
-                    disabled={audioState !== 'idle'}
-                    className={`flex-1 font-mono text-[11px] font-black py-3.5 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
-                      audioState === 'idle'
-                        ? 'bg-zinc-950 text-[#FAF6ED] hover:bg-zinc-850 cursor-pointer retro-shadow-xs'
-                        : 'bg-zinc-100 text-zinc-400 border-zinc-300 pointer-events-none'
-                    }`}
-                  >
-                    <Play className="h-3 w-3 fill-current" />
-                    <span>Start Session</span>
-                  </button>
-
-                  <button
-                    onClick={() => startSession(true)}
-                    disabled={audioState !== 'idle'}
-                    className={`flex-1 font-mono text-[11px] font-black py-3.5 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
-                      audioState === 'idle'
-                        ? 'bg-rose-600 text-[#FAF6ED] hover:bg-rose-700 cursor-pointer retro-shadow-xs'
-                        : 'bg-zinc-100 text-zinc-400 border-zinc-300 pointer-events-none'
-                    }`}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                    <span>Record Session</span>
-                  </button>
-                </div>
-
-                <button
-                  onClick={stopSession}
-                  disabled={audioState === 'idle'}
-                  className={`w-full font-mono text-[11px] font-black py-3.5 border-2 border-zinc-950 flex items-center justify-center gap-1.5 rounded-none uppercase transition-all ${
-                    audioState !== 'idle'
-                      ? 'bg-zinc-950 text-[#FAF6ED] hover:bg-zinc-850 cursor-pointer retro-shadow-xs'
-                      : 'bg-zinc-100 text-zinc-300 border-zinc-200 pointer-events-none'
-                  }`}
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                  <span>Stop & Export Session</span>
-                </button>
-              </div>
-            </div>
-
             {/* Deck 1: Historic tape reel rolls (History list - Sage Green background matching Pad 3) */}
             <div className="bg-[#8da99d] border-2 border-zinc-950 p-5 retro-shadow rounded-none">
-              <ImprovHistory rounds={rounds} onClear={clearRounds} />
+              <ImprovHistory 
+                rounds={rounds} 
+                onClear={clearRounds} 
+                engine={engineRef.current} 
+                audioState={audioState} 
+              />
             </div>
 
             {/* Deck 2: System User Manual */}
@@ -1067,8 +1177,14 @@ export default function App() {
       <footer className="py-8 px-4 text-center text-xs font-mono text-zinc-600 mt-auto select-none">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 border-t-2 border-zinc-950/15 pt-6">
           <div className="text-center md:text-left">
-            <span className="font-bold text-zinc-950 block">sound_impro &bull; Conversational Sound Lab</span>
+            <span className="font-bold text-zinc-950 block">sound_imp &bull; Conversational Sound Lab</span>
             <span className="text-[10px] text-zinc-500">Continuous sound synthesis & back-and-forth responsive improvisation.</span>
+            <span className="text-[11px] text-zinc-700 block mt-2 font-bold">
+              App by Philip and Google AI Studio / If you have any questions or feedback, please contact me:{' '}
+              <a href="mailto:p.stade@mh-freiburg.de" className="underline hover:text-zinc-950">
+                p.stade@mh-freiburg.de
+              </a>
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] font-bold">

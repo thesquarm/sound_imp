@@ -1,5 +1,5 @@
 {
-  "name": "Sound Improvisation",
+  "name": "sound_imp",
   "description": "An interactive sound improvisation app that records your sounds and plays back creative answers with pitch, reverb, delay, and crazy modulation effects based on an adjustable intensity slider.",
   "requestFramePermissions": [
     "microphone"

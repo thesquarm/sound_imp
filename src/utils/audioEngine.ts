@@ -36,6 +36,19 @@ export class SoundImproEngine {
   private recordingStartTime: number | null = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
   private lastUserBlobUrl: string | null = null;
+  private createdBlobUrls: string[] = [];
+  private activeDroneFreqs: number[] = [];
+  private roundBuffers = new Map<string, { userBuffer: AudioBuffer; processedBuffer: AudioBuffer }>();
+  private activeHistorySources = new Map<string, { source: AudioBufferSourceNode; isLooping: boolean }>();
+  private enabledRandomEffects = {
+    pitch: true,
+    reverb: true,
+    delay: true,
+    vibrato: true,
+    ringmod: true,
+    distortion: true,
+    filter: true
+  };
 
   constructor(
     onStateChange: (state: AudioState, metadata?: any) => void,
@@ -53,6 +66,18 @@ export class SoundImproEngine {
 
   public getIntensity(): number {
     return this.intensity;
+  }
+
+  public setEnabledRandomEffects(effects: {
+    pitch: boolean;
+    reverb: boolean;
+    delay: boolean;
+    vibrato: boolean;
+    ringmod: boolean;
+    distortion: boolean;
+    filter: boolean;
+  }) {
+    this.enabledRandomEffects = effects;
   }
 
   public setEffectStyle(val: number) {
@@ -78,10 +103,89 @@ export class SoundImproEngine {
     return this.audioContext;
   }
 
+  public updateActiveDrones(freqs: number[]) {
+    this.activeDroneFreqs = freqs;
+  }
+
+  public playHistoryBuffer(roundId: string, bufferType: 'raw' | 'processed', isLooping: boolean, onEnded: () => void) {
+    if (!this.audioContext) return;
+    
+    const item = this.roundBuffers.get(roundId);
+    if (!item) return;
+
+    // Stop existing history playback for this specific round if already active
+    this.stopHistoryBuffer(roundId);
+
+    const ctx = this.audioContext;
+    const source = ctx.createBufferSource();
+    source.buffer = bufferType === 'raw' ? item.userBuffer : item.processedBuffer;
+    source.loop = isLooping;
+    
+    // Connect to playback analyser and audio context destination
+    source.connect(this.playbackAnalyser!);
+    this.playbackAnalyser!.connect(ctx.destination);
+    
+    this.activeHistorySources.set(roundId, { source, isLooping });
+
+    // If recording session is active, feed this played sound into the session buffers!
+    if (this.isRecordingSession) {
+      this.sessionBuffers.push({
+        userBuffer: item.userBuffer,
+        processedBuffer: item.processedBuffer
+      });
+    }
+
+    source.onended = () => {
+      // Only trigger onEnded if it wasn't stopped manually
+      if (this.activeHistorySources.has(roundId)) {
+        this.activeHistorySources.delete(roundId);
+        onEnded();
+      }
+    };
+
+    source.start(0);
+  }
+
+  public stopHistoryBuffer(roundId: string) {
+    const active = this.activeHistorySources.get(roundId);
+    if (active) {
+      try {
+        active.source.stop();
+      } catch (e) {}
+      this.activeHistorySources.delete(roundId);
+    }
+  }
+
+  public stopAllHistoryBuffers() {
+    this.activeHistorySources.forEach((active, roundId) => {
+      try {
+        active.source.stop();
+      } catch (e) {}
+    });
+    this.activeHistorySources.clear();
+  }
+
+  public setHistoryBufferLooping(roundId: string, isLooping: boolean) {
+    const active = this.activeHistorySources.get(roundId);
+    if (active) {
+      active.source.loop = isLooping;
+      active.isLooping = isLooping;
+    }
+  }
+
   public setLooping(val: boolean) {
     this.isLooping = val;
     if (this.activeSourceNode) {
       this.activeSourceNode.loop = val;
+    }
+  }
+
+  public skipReplyingAndStartNewRound() {
+    if (this.currentState === 'playing_answer' && this.activeSourceNode) {
+      try {
+        this.activeSourceNode.stop();
+      } catch (e) {}
+      this.activeSourceNode = null;
     }
   }
 
@@ -131,6 +235,8 @@ export class SoundImproEngine {
 
   public clearSessionBuffers() {
     this.sessionBuffers = [];
+    this.roundBuffers.clear();
+    this.stopAllHistoryBuffers();
   }
 
   public getSessionBuffersCount(): number {
@@ -239,10 +345,15 @@ export class SoundImproEngine {
     }
 
     // Clean up urls
-    if (this.lastUserBlobUrl) {
-      URL.revokeObjectURL(this.lastUserBlobUrl);
-      this.lastUserBlobUrl = null;
-    }
+    this.createdBlobUrls.forEach(url => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {}
+    });
+    this.createdBlobUrls = [];
+    this.lastUserBlobUrl = null;
+
+    this.stopAllHistoryBuffers();
 
     this.micSource = null;
     this.micAnalyser = null;
@@ -371,12 +482,6 @@ export class SoundImproEngine {
     this.changeState('processing');
 
     try {
-      // Create local URL of the user's recorded audio for downloading/saving
-      if (this.lastUserBlobUrl) {
-        URL.revokeObjectURL(this.lastUserBlobUrl);
-      }
-      this.lastUserBlobUrl = URL.createObjectURL(blob);
-
       // Convert Blob to ArrayBuffer
       const arrayBuffer = await blob.arrayBuffer();
       
@@ -390,6 +495,12 @@ export class SoundImproEngine {
         return;
       }
 
+      // Create local URL of the user's recorded audio for downloading/saving (using standard WAV for universal browser support)
+      const wavBlob = this.bufferToWav(rawBuffer);
+      const url = URL.createObjectURL(wavBlob);
+      this.lastUserBlobUrl = url;
+      this.createdBlobUrls.push(url);
+
       // Procedurally select effects based on intensity & style
       const { settings, names } = this.generateRandomEffects(this.intensity, this.effectStyle);
 
@@ -401,8 +512,12 @@ export class SoundImproEngine {
         this.sessionBuffers.push({ userBuffer: rawBuffer, processedBuffer });
       }
 
+      // Generate a stable, unique roundId and register it in roundBuffers so it is always play-backable
+      const roundId = Math.random().toString(36).substring(2, 9);
+      this.roundBuffers.set(roundId, { userBuffer: rawBuffer, processedBuffer });
+
       // Trigger pre-rendered direct playback (ensures perfect fidelity!)
-      this.playProcessedBufferDirect(processedBuffer, rawBuffer.duration, settings, names);
+      this.playProcessedBufferDirect(processedBuffer, rawBuffer.duration, settings, names, roundId, url);
 
     } catch (err) {
       console.error('Error decoding/processing sound reply:', err);
@@ -585,7 +700,9 @@ export class SoundImproEngine {
     processedBuffer: AudioBuffer,
     originalDurationSec: number,
     settings: EffectSettings,
-    effectNames: string[]
+    effectNames: string[],
+    roundId: string,
+    specificUserBlobUrl: string
   ) {
     const ctx = this.audioContext;
     if (!ctx) return;
@@ -628,14 +745,14 @@ export class SoundImproEngine {
 
     // 3. Playback Completion Handler
     source.onended = () => {
-      // Record round completion stats
+      // Record round completion stats using the exact, stable pre-generated ID
       const round: ImprovRound = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: roundId,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         durationSec: parseFloat((originalDurationSec / settings.pitchRate).toFixed(1)),
         effectsApplied: effectNames.length > 0 ? effectNames : ['Clean Audio Only'],
         intensity: this.intensity,
-        userAudioUrl: this.lastUserBlobUrl || undefined
+        userAudioUrl: specificUserBlobUrl || undefined
       };
       
       this.lastStates = [round, ...this.lastStates].slice(0, 10);
@@ -836,12 +953,51 @@ export class SoundImproEngine {
     return concatenated ? this.bufferToWav(concatenated) : null;
   }
 
+  private mixDroneBackground(buffer: AudioBuffer) {
+    if (this.activeDroneFreqs.length === 0) return;
+    
+    const channels = buffer.numberOfChannels;
+    const length = buffer.length;
+    const sampleRate = buffer.sampleRate;
+    
+    for (let channel = 0; channel < channels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        let droneSum = 0;
+        
+        for (const f of this.activeDroneFreqs) {
+          const period = 1 / f;
+          const phase = (t % period) / period;
+          let val = 0;
+          if (phase < 0.25) {
+            val = phase * 4;
+          } else if (phase < 0.75) {
+            val = 2 - phase * 4;
+          } else {
+            val = phase * 4 - 4;
+          }
+          droneSum += val * 0.05; // soft background volume
+        }
+        
+        let mixed = channelData[i] + droneSum;
+        if (mixed > 1.0) mixed = 1.0;
+        if (mixed < -1.0) mixed = -1.0;
+        channelData[i] = mixed;
+      }
+    }
+  }
+
   /**
    * Generates a pristine alternating mix of the full session
    */
   public getWholeSessionWav(): Blob | null {
     const concatenated = this.concatenateSessionAlternating();
-    return concatenated ? this.bufferToWav(concatenated) : null;
+    if (concatenated) {
+      this.mixDroneBackground(concatenated);
+      return this.bufferToWav(concatenated);
+    }
+    return null;
   }
 
   /**
@@ -909,55 +1065,63 @@ export class SoundImproEngine {
     const roll = (prob: number) => Math.random() < prob;
 
     // 1. Pitch Shift / Speed effect (highly favored on synthetic style)
-    const pitchProb = (0.15 + (style / 100) * 0.75) * (intensity / 100);
-    if (roll(pitchProb)) {
-      if (style > 50) {
-        // Extreme / synthetic pitches
-        if (Math.random() < 0.5) {
-          settings.pitchRate = 0.5; // extreme deep giant
-          names.push('Alien Giant 👹');
+    if (this.enabledRandomEffects.pitch) {
+      const pitchProb = (0.15 + (style / 100) * 0.75) * (intensity / 100);
+      if (roll(pitchProb)) {
+        if (style > 50) {
+          // Extreme / synthetic pitches
+          if (Math.random() < 0.5) {
+            settings.pitchRate = 0.5; // extreme deep giant
+            names.push('Alien Giant 👹');
+          } else {
+            settings.pitchRate = 2.0; // extreme hyper chipmunk
+            names.push('Hyper Chipmunk 🐿️');
+          }
         } else {
-          settings.pitchRate = 2.0; // extreme hyper chipmunk
-          names.push('Hyper Chipmunk 🐿️');
-        }
-      } else {
-        // Natural / mild speed fluctuations
-        if (Math.random() < 0.5) {
-          settings.pitchRate = 0.8;
-          names.push('Slower Speed ⬇️');
-        } else {
-          settings.pitchRate = 1.3;
-          names.push('Faster Speed ⬆️');
+          // Natural / mild speed fluctuations
+          if (Math.random() < 0.5) {
+            settings.pitchRate = 0.8;
+            names.push('Slower Speed ⬇️');
+          } else {
+            settings.pitchRate = 1.3;
+            names.push('Faster Speed ⬆️');
+          }
         }
       }
     }
 
     // 2. Lush Reverb (highly favored on natural style)
-    const reverbProb = (0.85 - (style / 100) * 0.65) * (intensity / 100);
-    if (roll(reverbProb)) {
-      settings.reverbWet = (intensity / 100) * (0.2 + Math.random() * 0.6);
-      names.push(settings.reverbWet > 0.55 ? 'Cathedral Reverb 🏛️' : 'Ambient Space 🌌');
+    if (this.enabledRandomEffects.reverb) {
+      const reverbProb = (0.85 - (style / 100) * 0.65) * (intensity / 100);
+      if (roll(reverbProb)) {
+        settings.reverbWet = (intensity / 100) * (0.2 + Math.random() * 0.6);
+        names.push(settings.reverbWet > 0.55 ? 'Cathedral Reverb 🏛️' : 'Ambient Space 🌌');
+      }
     }
 
     // 3. Feedback Delay / Echo (highly favored on natural style)
-    const delayProb = (0.80 - (style / 100) * 0.40) * (intensity / 100);
-    if (roll(delayProb)) {
-      settings.delayTime = 0.2 + Math.random() * 0.6; // 200ms to 800ms
-      settings.delayFeedback = 0.25 + (intensity / 100) * 0.5;
-      settings.delayWet = (intensity / 100) * (0.25 + Math.random() * 0.45);
-      names.push(settings.delayFeedback > 0.5 ? 'Space Dub Echo 💫' : 'Slapback Delay ⏱️');
+    if (this.enabledRandomEffects.delay) {
+      const delayProb = (0.80 - (style / 100) * 0.40) * (intensity / 100);
+      if (roll(delayProb)) {
+        settings.delayTime = 0.2 + Math.random() * 0.6; // 200ms to 800ms
+        settings.delayFeedback = 0.25 + (intensity / 100) * 0.5;
+        settings.delayWet = (intensity / 100) * (0.25 + Math.random() * 0.45);
+        names.push(settings.delayFeedback > 0.5 ? 'Space Dub Echo 💫' : 'Slapback Delay ⏱️');
+      }
     }
 
     // 4. Vibrato (favored on synthetic style)
-    const vibratoProb = (0.15 + (style / 100) * 0.70) * (intensity / 100);
-    if (roll(vibratoProb)) {
-      settings.vibratoRate = 4.5 + Math.random() * 5.0; // 4.5Hz to 9.5Hz
-      settings.vibratoDepth = (intensity / 100) * (style / 100) * 0.006;
-      names.push(settings.vibratoDepth > 0.0035 ? 'Psychedelic Warble 🌀' : 'Mild Vibrato 📳');
+    if (this.enabledRandomEffects.vibrato) {
+      const vibratoProb = (0.15 + (style / 100) * 0.70) * (intensity / 100);
+      if (roll(vibratoProb)) {
+        settings.vibratoRate = 4.5 + Math.random() * 5.0; // 4.5Hz to 9.5Hz
+        settings.vibratoDepth = (intensity / 100) * (style / 100) * 0.006;
+        names.push(settings.vibratoDepth > 0.0035 ? 'Psychedelic Warble 🌀' : 'Mild Vibrato 📳');
+      }
     }
 
     // 5. Ring Modulation (only on synthetic style and intensity > 30)
-    if (intensity > 30 && style > 35) {
+    if (this.enabledRandomEffects.ringmod && intensity > 30 && style > 35) {
       const ringProb = (style / 100) * 0.85 * (intensity / 100);
       if (roll(ringProb)) {
         settings.ringModFreq = 50 + Math.random() * 150; // carrier freq
@@ -967,7 +1131,7 @@ export class SoundImproEngine {
     }
 
     // 6. Distortion / Overdrive Fuzz (only on synthetic style and intensity > 40)
-    if (intensity > 40 && style > 40) {
+    if (this.enabledRandomEffects.distortion && intensity > 40 && style > 40) {
       const distProb = (style / 100) * 0.80 * (intensity / 100);
       if (roll(distProb)) {
         settings.distortionAmount = 15 + (style / 100) * (intensity - 40) * 1.5;
@@ -976,23 +1140,23 @@ export class SoundImproEngine {
     }
 
     // 7. Filter Sweep (Natural underwater lowpass vs Synthetic vintage highpass radio)
-    const filterProb = 0.3 + (intensity / 100) * 0.4;
-    if (roll(filterProb)) {
-      if (style < 50) {
-        settings.filterType = 'lowpass';
-        settings.filterFrequency = 350 + Math.random() * 450; // Muffled underwater lowpass
-        names.push('Underwater Sub 🌊');
-      } else {
-        settings.filterType = 'highpass';
-        settings.filterFrequency = 1200 + Math.random() * 1200; // Tinny radio highpass
-        names.push('Vintage Radio 📻');
+    if (this.enabledRandomEffects.filter) {
+      const filterProb = 0.3 + (intensity / 100) * 0.4;
+      if (roll(filterProb)) {
+        if (style < 50) {
+          settings.filterType = 'lowpass';
+          settings.filterFrequency = 350 + Math.random() * 450; // Muffled underwater lowpass
+          names.push('Underwater Sub 🌊');
+        } else {
+          settings.filterType = 'highpass';
+          settings.filterFrequency = 1200 + Math.random() * 1200; // Tinny radio highpass
+          names.push('Vintage Radio 📻');
+        }
       }
     }
 
     if (names.length === 0) {
-      names.push('Mild Echo ⏱️');
-      settings.delayWet = 0.2;
-      settings.delayTime = 0.3;
+      names.push('Clean Audio Only ✨');
     }
 
     return { settings, names };
