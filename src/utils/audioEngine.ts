@@ -35,19 +35,23 @@ export class SoundImproEngine {
   private silenceStartTime: number | null = null;
   private recordingStartTime: number | null = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
+  private activeGainNode: GainNode | null = null;
   private lastUserBlobUrl: string | null = null;
   private createdBlobUrls: string[] = [];
   private activeDroneFreqs: number[] = [];
+  private droneVolume: number = 0.5; // range 0 to 1
   private roundBuffers = new Map<string, { userBuffer: AudioBuffer; processedBuffer: AudioBuffer }>();
   private activeHistorySources = new Map<string, { source: AudioBufferSourceNode; isLooping: boolean }>();
   private enabledRandomEffects = {
     pitch: true,
     reverb: true,
     delay: true,
-    vibrato: true,
+    tremolo: true,
+    bitcrusher: true,
     ringmod: true,
     distortion: true,
-    filter: true
+    filter: true,
+    flanger: true,
   };
 
   constructor(
@@ -58,6 +62,10 @@ export class SoundImproEngine {
     this.onStateChange = onStateChange;
     this.onVisualsUpdate = onVisualsUpdate;
     this.onRoundComplete = onRoundComplete;
+  }
+
+  public setDroneVolume(vol: number) {
+    this.droneVolume = vol;
   }
 
   public setIntensity(val: number) {
@@ -72,10 +80,12 @@ export class SoundImproEngine {
     pitch: boolean;
     reverb: boolean;
     delay: boolean;
-    vibrato: boolean;
+    tremolo: boolean;
+    bitcrusher: boolean;
     ringmod: boolean;
     distortion: boolean;
     filter: boolean;
+    flanger: boolean;
   }) {
     this.enabledRandomEffects = effects;
   }
@@ -182,10 +192,30 @@ export class SoundImproEngine {
 
   public skipReplyingAndStartNewRound() {
     if (this.currentState === 'playing_answer' && this.activeSourceNode) {
-      try {
-        this.activeSourceNode.stop();
-      } catch (e) {}
+      const ctx = this.audioContext;
+      const gainNode = this.activeGainNode;
+      const sourceNode = this.activeSourceNode;
+      
       this.activeSourceNode = null;
+      this.activeGainNode = null;
+      
+      if (ctx && gainNode) {
+        try {
+          // Smooth, ultra-fast 25ms fade out to prevent clicks/clipping
+          gainNode.gain.cancelScheduledValues(ctx.currentTime);
+          gainNode.gain.setValueAtTime(gainNode.gain.value, ctx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.025);
+          sourceNode.stop(ctx.currentTime + 0.03);
+        } catch (e) {
+          try {
+            sourceNode.stop();
+          } catch (err) {}
+        }
+      } else {
+        try {
+          sourceNode.stop();
+        } catch (e) {}
+      }
     }
   }
 
@@ -329,6 +359,7 @@ export class SoundImproEngine {
       } catch (e) {}
       this.activeSourceNode = null;
     }
+    this.activeGainNode = null;
 
     // Stop and release media stream tracks
     if (this.mediaStream) {
@@ -394,6 +425,26 @@ export class SoundImproEngine {
     this.onVisualsUpdate(dataArray, rms, !isPlayback);
 
     const now = Date.now();
+
+    // Monitor microphone input during playback to detect new user sounds
+    if (isPlayback && this.micAnalyser) {
+      const micBufferLength = this.micAnalyser.frequencyBinCount;
+      const micDataArray = new Uint8Array(micBufferLength);
+      this.micAnalyser.getByteTimeDomainData(micDataArray);
+      let micSum = 0;
+      for (let i = 0; i < micBufferLength; i++) {
+        const val = (micDataArray[i] - 128) / 128;
+        micSum += val * val;
+      }
+      const micRms = Math.sqrt(micSum / micBufferLength);
+      
+      // Dynamic threshold slightly higher than standard onset to prevent speaker bleed-through, but still very responsive
+      const dynamicThreshold = Math.max(this.onsetThreshold * 1.3, 0.03);
+      if (micRms > dynamicThreshold) {
+        this.skipReplyingAndStartNewRound();
+        return;
+      }
+    }
 
     // Sound Onset & Silence detection state machine
     if (this.currentState === 'waiting_for_sound') {
@@ -540,9 +591,13 @@ export class SoundImproEngine {
     // Pitch shifting changes output duration
     const targetLength = Math.max(1, Math.floor(userBuffer.length / settings.pitchRate));
     
+    // Add 4.5 seconds of tail for reverb/delay/echo to decay naturally!
+    const tailSamples = Math.floor(ctx.sampleRate * 4.5);
+    const totalLength = targetLength + tailSamples;
+    
     const offlineCtx = new OfflineAudioContext(
       userBuffer.numberOfChannels,
-      targetLength,
+      totalLength,
       ctx.sampleRate
     );
 
@@ -554,21 +609,122 @@ export class SoundImproEngine {
     // 2. Setup Nodes for each effect
     const finalChain: AudioNode[] = [];
 
-    // [EFFECT] Vibrato LFO Delay (modulates pitch dynamically over time)
-    if (settings.vibratoDepth > 0) {
-      const vibratoDelay = offlineCtx.createDelay();
-      vibratoDelay.delayTime.value = 0.012; // 12ms base delay
-      
+    // [EFFECT] Tremolo (volume LFO modulation)
+    if (settings.tremoloDepth > 0) {
+      const tremoloGain = offlineCtx.createGain();
+      tremoloGain.gain.value = 1.0 - settings.tremoloDepth * 0.5; // scale offset
+
+      const tremoloLfo = offlineCtx.createOscillator();
+      tremoloLfo.frequency.value = settings.tremoloRate;
+
+      const tremoloLfoGain = offlineCtx.createGain();
+      tremoloLfoGain.gain.value = settings.tremoloDepth * 0.5;
+
+      tremoloLfo.connect(tremoloLfoGain);
+      tremoloLfoGain.connect(tremoloGain.gain);
+      tremoloLfo.start();
+      finalChain.push(tremoloGain);
+    }
+
+    // [EFFECT] Bitcrusher (sample rate & bit reduction wave-shaper)
+    if (settings.bitcrusherWet > 0) {
+      const bcNode = offlineCtx.createWaveShaper();
+      bcNode.curve = this.makeBitcrusherCurve(settings.bitcrusherBits);
+      bcNode.oversample = 'none';
+
+      const bcDry = offlineCtx.createGain();
+      bcDry.gain.value = 1.0 - settings.bitcrusherWet;
+      const bcWet = offlineCtx.createGain();
+      bcWet.gain.value = settings.bitcrusherWet;
+
+      const bcSplit = offlineCtx.createGain();
+      const bcMerge = offlineCtx.createGain();
+
+      bcSplit.connect(bcDry);
+      bcDry.connect(bcMerge);
+
+      bcSplit.connect(bcNode);
+      bcNode.connect(bcWet);
+      bcWet.connect(bcMerge);
+
+      finalChain.push(bcSplit);
+      finalChain.push(bcMerge);
+    }
+
+    // [EFFECT] Space Flanger (swept delay comb filter)
+    if (settings.flangerWet > 0) {
+      const flangerSplit = offlineCtx.createGain();
+      const flangerMerge = offlineCtx.createGain();
+
+      const flangerDelay = offlineCtx.createDelay(0.1);
+      flangerDelay.delayTime.value = 0.003; // 3ms base delay
+
+      const flangerLfo = offlineCtx.createOscillator();
+      flangerLfo.frequency.value = settings.flangerRate;
+
+      const flangerLfoGain = offlineCtx.createGain();
+      flangerLfoGain.gain.value = settings.flangerDepth;
+
+      flangerLfo.connect(flangerLfoGain);
+      flangerLfoGain.connect(flangerDelay.delayTime);
+      flangerLfo.start();
+
+      const flangerFeedback = offlineCtx.createGain();
+      flangerFeedback.gain.value = 0.7; // deep flanging resonance
+
+      const flangerWet = offlineCtx.createGain();
+      flangerWet.gain.value = settings.flangerWet;
+
+      const flangerDry = offlineCtx.createGain();
+      flangerDry.gain.value = 1.0 - settings.flangerWet * 0.5;
+
+      // Connections
+      flangerSplit.connect(flangerDry);
+      flangerDry.connect(flangerMerge);
+
+      flangerSplit.connect(flangerDelay);
+      flangerDelay.connect(flangerFeedback);
+      flangerFeedback.connect(flangerDelay);
+
+      flangerDelay.connect(flangerWet);
+      flangerWet.connect(flangerMerge);
+
+      finalChain.push(flangerSplit);
+      finalChain.push(flangerMerge);
+    }
+
+    // [EFFECT] Tape Vibrato (pitch modulation / tape wow & flutter)
+    if (settings.vibratoWet > 0) {
+      const vibratoSplit = offlineCtx.createGain();
+      const vibratoMerge = offlineCtx.createGain();
+
+      const vibratoDelay = offlineCtx.createDelay(0.1);
+      vibratoDelay.delayTime.value = 0.005; // 5ms baseline delay
+
       const vibratoLfo = offlineCtx.createOscillator();
       vibratoLfo.frequency.value = settings.vibratoRate;
-      
+
       const vibratoLfoGain = offlineCtx.createGain();
       vibratoLfoGain.gain.value = settings.vibratoDepth;
 
       vibratoLfo.connect(vibratoLfoGain);
       vibratoLfoGain.connect(vibratoDelay.delayTime);
       vibratoLfo.start();
-      finalChain.push(vibratoDelay);
+
+      const vibratoDry = offlineCtx.createGain();
+      vibratoDry.gain.value = 1.0 - settings.vibratoWet * 0.5;
+      const vibratoWet = offlineCtx.createGain();
+      vibratoWet.gain.value = settings.vibratoWet;
+
+      vibratoSplit.connect(vibratoDry);
+      vibratoDry.connect(vibratoMerge);
+
+      vibratoSplit.connect(vibratoDelay);
+      vibratoDelay.connect(vibratoWet);
+      vibratoWet.connect(vibratoMerge);
+
+      finalChain.push(vibratoSplit);
+      finalChain.push(vibratoMerge);
     }
 
     // [EFFECT] Ring Modulator (metallic robot effect)
@@ -690,7 +846,41 @@ export class SoundImproEngine {
     // 5. Start source and render
     source.start(0);
     const rendered = await offlineCtx.startRendering();
-    return rendered;
+    return this.normalizeBuffer(rendered, 0.90);
+  }
+
+  /**
+   * Normalizes an AudioBuffer so that its peak amplitude matches the targetPeak value.
+   * This ensures a consistent, rich, and highly audible playback volume.
+   */
+  private normalizeBuffer(buffer: AudioBuffer, targetPeak: number = 0.90): AudioBuffer {
+    const channels = buffer.numberOfChannels;
+    const length = buffer.length;
+    
+    // Find current peak across all channels
+    let maxVal = 0;
+    for (let c = 0; c < channels; c++) {
+      const data = buffer.getChannelData(c);
+      for (let i = 0; i < length; i++) {
+        const absVal = Math.abs(data[i]);
+        if (absVal > maxVal) {
+          maxVal = absVal;
+        }
+      }
+    }
+    
+    // Scale if we have sound and it is quieter than the target
+    if (maxVal > 0.001 && maxVal < targetPeak) {
+      const scaleFactor = targetPeak / maxVal;
+      for (let c = 0; c < channels; c++) {
+        const data = buffer.getChannelData(c);
+        for (let i = 0; i < length; i++) {
+          data[i] *= scaleFactor;
+        }
+      }
+    }
+    
+    return buffer;
   }
 
   /**
@@ -737,8 +927,19 @@ export class SoundImproEngine {
 
     // 3. Connect directly to Playback Analyser and Master Output
     const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.95; // clean headroom
-
+    this.activeGainNode = masterGain;
+    
+    // Set initial gain to 0.0 and fade in quickly to prevent starting clicks/pops
+    masterGain.gain.setValueAtTime(0.0, ctx.currentTime);
+    const fadeInDuration = 0.02;
+    masterGain.gain.linearRampToValueAtTime(0.95, ctx.currentTime + fadeInDuration);
+    
+    const totalDuration = playbackBuffer.duration;
+    // We want to stop the reply early if it has a long tail, to transition back to recording faster.
+    // However, we want to let the effects like echo play and decay nicely.
+    const processedDuration = originalDurationSec / settings.pitchRate;
+    const maxPlayDuration = Math.min(totalDuration, Math.max(processedDuration + 0.4, 1.2));
+    
     source.connect(this.playbackAnalyser!);
     this.playbackAnalyser!.connect(masterGain);
     masterGain.connect(ctx.destination);
@@ -764,8 +965,20 @@ export class SoundImproEngine {
       }
     };
 
-    // Start playback
+    // Start playback first so we can safely schedule stopping it
     source.start(0);
+
+    if (!this.isLooping) {
+      const fadeOutDuration = 0.15;
+      const fadeOutStart = maxPlayDuration - fadeOutDuration;
+      
+      // Schedule the smooth fade-out
+      masterGain.gain.setValueAtTime(0.95, ctx.currentTime + fadeOutStart);
+      masterGain.gain.linearRampToValueAtTime(0.0, ctx.currentTime + maxPlayDuration);
+      
+      // Stop the source exactly at maxPlayDuration to trigger onended faster!
+      source.stop(ctx.currentTime + maxPlayDuration);
+    }
   }
 
   /**
@@ -954,7 +1167,7 @@ export class SoundImproEngine {
   }
 
   private mixDroneBackground(buffer: AudioBuffer) {
-    if (this.activeDroneFreqs.length === 0) return;
+    if (this.activeDroneFreqs.length === 0 || this.droneVolume === 0) return;
     
     const channels = buffer.numberOfChannels;
     const length = buffer.length;
@@ -977,7 +1190,7 @@ export class SoundImproEngine {
           } else {
             val = phase * 4 - 4;
           }
-          droneSum += val * 0.05; // soft background volume
+          droneSum += val * 0.08 * this.droneVolume; // scaled background volume
         }
         
         let mixed = channelData[i] + droneSum;
@@ -1036,6 +1249,21 @@ export class SoundImproEngine {
   }
 
   /**
+   * Calculates a bit reduction quantizing curve buffer for WaveShaperNode (Bitcrusher)
+   */
+  private makeBitcrusherCurve(bits: number): Float32Array {
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const steps = Math.pow(2, bits);
+    for (let i = 0; i < n_samples; i++) {
+      const x = (i * 2) / n_samples - 1;
+      // Quantize x to steps
+      curve[i] = Math.round(x * (steps / 2)) / (steps / 2);
+    }
+    return curve;
+  }
+
+  /**
    * Generates randomized effect parameters based on the intensity and effect style sliders.
    * effectStyle: 0 = 100% natural, organic effects (reverb, echo, lowpass)
    *             100 = 100% synthetic, digital, robotic effects (chipmunk, alien, distortion, ring mod)
@@ -1050,10 +1278,18 @@ export class SoundImproEngine {
       distortionAmount: 0,
       filterType: 'none',
       filterFrequency: 1000,
-      vibratoRate: 6.0,
-      vibratoDepth: 0,
       ringModFreq: 80,
-      ringModWet: 0
+      ringModWet: 0,
+      tremoloRate: 6.0,
+      tremoloDepth: 0,
+      bitcrusherWet: 0,
+      bitcrusherBits: 8,
+      flangerRate: 1.0,
+      flangerDepth: 0.002,
+      flangerWet: 0,
+      vibratoRate: 5.5,
+      vibratoDepth: 0.002,
+      vibratoWet: 0
     };
 
     const names: string[] = [];
@@ -1110,17 +1346,38 @@ export class SoundImproEngine {
       }
     }
 
-    // 4. Vibrato (favored on synthetic style)
-    if (this.enabledRandomEffects.vibrato) {
-      const vibratoProb = (0.15 + (style / 100) * 0.70) * (intensity / 100);
-      if (roll(vibratoProb)) {
-        settings.vibratoRate = 4.5 + Math.random() * 5.0; // 4.5Hz to 9.5Hz
-        settings.vibratoDepth = (intensity / 100) * (style / 100) * 0.006;
-        names.push(settings.vibratoDepth > 0.0035 ? 'Psychedelic Warble 🌀' : 'Mild Vibrato 📳');
+    // 4. Tremolo (favored on both styles for pulsing volume modulation)
+    if (this.enabledRandomEffects.tremolo) {
+      const tremoloProb = (0.3 + (style / 100) * 0.2) * (intensity / 100);
+      if (roll(tremoloProb)) {
+        settings.tremoloRate = 3.0 + Math.random() * 9.0; // 3Hz to 12Hz
+        settings.tremoloDepth = 0.3 + (intensity / 100) * 0.65;
+        names.push('Pulse Tremolo 📳');
       }
     }
 
-    // 5. Ring Modulation (only on synthetic style and intensity > 30)
+    // 5. Bitcrusher (only on synthetic style and high intensity)
+    if (this.enabledRandomEffects.bitcrusher && intensity > 25 && style > 30) {
+      const crushProb = (style / 100) * 0.75 * (intensity / 100);
+      if (roll(crushProb)) {
+        settings.bitcrusherBits = Math.floor(2 + Math.random() * 4); // 2 to 5 bits (lo-fi goodness)
+        settings.bitcrusherWet = 0.35 + (intensity / 100) * 0.55;
+        names.push('Lo-Fi Bitcrush 👾');
+      }
+    }
+
+    // 6. Space Flanger (beautiful dynamic phasing comb sweeps)
+    if (this.enabledRandomEffects.flanger) {
+      const flangerProb = (0.25 + (style / 100) * 0.4) * (intensity / 100);
+      if (roll(flangerProb)) {
+        settings.flangerRate = 0.15 + Math.random() * 2.0; // slow sweeps
+        settings.flangerDepth = 0.001 + Math.random() * 0.0025;
+        settings.flangerWet = 0.3 + (intensity / 100) * 0.6;
+        names.push('Space Flanger 🌀');
+      }
+    }
+
+    // 7. Ring Modulation (only on synthetic style and intensity > 30)
     if (this.enabledRandomEffects.ringmod && intensity > 30 && style > 35) {
       const ringProb = (style / 100) * 0.85 * (intensity / 100);
       if (roll(ringProb)) {
@@ -1130,7 +1387,7 @@ export class SoundImproEngine {
       }
     }
 
-    // 6. Distortion / Overdrive Fuzz (only on synthetic style and intensity > 40)
+    // 8. Distortion / Overdrive Fuzz (only on synthetic style and intensity > 40)
     if (this.enabledRandomEffects.distortion && intensity > 40 && style > 40) {
       const distProb = (style / 100) * 0.80 * (intensity / 100);
       if (roll(distProb)) {
@@ -1139,7 +1396,7 @@ export class SoundImproEngine {
       }
     }
 
-    // 7. Filter Sweep (Natural underwater lowpass vs Synthetic vintage highpass radio)
+    // 9. Filter Sweep (Natural underwater lowpass vs Synthetic vintage highpass radio)
     if (this.enabledRandomEffects.filter) {
       const filterProb = 0.3 + (intensity / 100) * 0.4;
       if (roll(filterProb)) {
@@ -1153,6 +1410,15 @@ export class SoundImproEngine {
           names.push('Vintage Radio 📻');
         }
       }
+    }
+
+    // 10. Tape Vibrato / Wow & Flutter
+    const vibratoProb = 0.35 * (intensity / 100);
+    if (roll(vibratoProb)) {
+      settings.vibratoRate = 4.0 + Math.random() * 4.5; // ~4Hz to 8.5Hz speed wobble
+      settings.vibratoDepth = 0.001 + Math.random() * 0.0015; // ~1ms to 2.5ms depth
+      settings.vibratoWet = 0.35 + (intensity / 100) * 0.55;
+      names.push('Tape Flutter 🔮');
     }
 
     if (names.length === 0) {

@@ -35,10 +35,25 @@ Developed following the visual and aesthetic design of [soundcomp](https://sound
 * **Multi-Layer Ambient Drone Synth**: 
   * Spawn low-frequency triangle oscillators and soft lowpass filters to generate beautiful background chords.
   * **Minor & Tension Tuning**: Tuned the drone pads' base frequency and interval relationships to minor chords and high-tension intervals (minor seconds, tritones, diminished fifths) for a dark, dramatic, cinematic soundscapes.
-  * **Drone Session Mix**: The complete recording system mixes the ambient background drones directly into the downloadable "Full Continuous Session" file.
+  * **Audible Live and in Sessions**: Background drone oscillators are now mixed directly to the live audio destination during the session, in addition to being rendered in the recorded session tapes.
+  * **Live Drone Volume Fader**: Added a dynamic, responsive fader to adjust ambient drone levels from 0% to 100% on-the-fly.
 * **Instant-Skip "Make a Sound" Button**:
   * Converted the central state display node into an active button.
   * When clicked during the reply playback (`playing_answer`), it halts playback immediately and resets the state to `waiting_for_sound` for the next round instantly.
+* **Ambient Status Shimmer & Pulse Glow**:
+  * Added full-screen overlay indicators that pulse gently:
+    - **Crimson Red Shimmer**: Activates when the system is armed/waiting (`waiting_for_sound`) or actively recording input (`recording_sound`).
+    - **Sky Blue Shimmer**: Activates when the system is processing and actively responding (`playing_answer`).
+  * Gives the performer immediate visual feedback, especially useful for mobile device usage.
+* **Direct Quick-Controls in Bento Block 1**:
+  * Relocated the central modifiers—**LOOP**, **REVERSE**, and **FILTER**—directly into the main, primary bento block next to the status button.
+  * Provides instant, unhindered manual control of playback parameters during the session.
+* **Upgraded High-Fidelity DSP Effects**:
+  * Replaced the simple LFO warble/vibrato effect with three distinct, professional-grade creative DSP algorithms:
+    1. **Pulse Tremolo 📳**: Direct amplitude LFO volume modulation.
+    2. **Lo-Fi Bitcrush 👾**: High-character digital bit-depth quantizer (2-bit to 5-bit) for retro texture.
+    3. **Space Flanger 🌀**: Rich combing comb-filter sweeps with slow, wide panning.
+  * Expanded the **Chance Effects Pool (Roll Gate)** to support toggling, randomizing, and configuring all 9 premium DSP elements.
 * **Enhanced Session Log Tape**:
   * Displays three distinct functionalities per round for deep musical experimentation:
     1. **Loop Switch**: Loop individual round playbacks infinitely.

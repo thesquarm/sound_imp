@@ -15,13 +15,191 @@ import {
   Upload,
   Download,
   Trash2,
-  Sparkles
+  Sparkles,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { AudioState, ImprovRound } from './types';
 import { SoundImproEngine } from './utils/audioEngine';
 import { WaveVisualizer } from './components/WaveVisualizer';
 import { ImprovHistory } from './components/ImprovHistory';
 import { SoundImproHelp } from './components/SoundImproHelp';
+
+const DRONE_SCALES = [
+  {
+    id: 'zen',
+    name: 'Zen Garden 🌸',
+    desc: 'Pentatonic Major - Peaceful, harmonic, meditative.',
+    notes: [
+      { freq: 110.0, name: 'Root A2' },
+      { freq: 138.6, name: 'Major Third C#3' },
+      { freq: 164.8, name: 'Perfect Fifth E3' },
+      { freq: 185.0, name: 'Major Sixth F#3' },
+      { freq: 220.0, name: 'Octave A3' }
+    ],
+    colors: ['bg-[#8da99d]', 'bg-[#b6c7b9]', 'bg-[#988bb5]', 'bg-[#8a9ca8]', 'bg-[#c2aa72]']
+  },
+  {
+    id: 'cold_mist',
+    name: 'Cold Mist ❄️',
+    desc: 'Natural Minor - Melancholic, cinematic, cold.',
+    notes: [
+      { freq: 110.0, name: 'Root A2' },
+      { freq: 130.8, name: 'Minor Third C3' },
+      { freq: 146.8, name: 'Perfect Fourth D3' },
+      { freq: 164.8, name: 'Perfect Fifth E3' },
+      { freq: 174.6, name: 'Minor Sixth F3' }
+    ],
+    colors: ['bg-[#8a9ca8]', 'bg-[#9ab4c5]', 'bg-[#969e7f]', 'bg-[#FAF3D1]', 'bg-[#cfa588]']
+  },
+  {
+    id: 'crimson',
+    name: 'Suspense Crimson 🩸',
+    desc: 'Phrygian Mode - High drama, dark, exotic tension.',
+    notes: [
+      { freq: 110.0, name: 'Root A2' },
+      { freq: 116.5, name: 'Flat Second Bb2' },
+      { freq: 138.6, name: 'Major Third C#3' },
+      { freq: 164.8, name: 'Perfect Fifth E3' },
+      { freq: 196.0, name: 'Minor Seventh G3' }
+    ],
+    colors: ['bg-[#b85a5a]', 'bg-[#d67b7b]', 'bg-[#ba9e68]', 'bg-[#988bb5]', 'bg-[#969e7f]']
+  },
+  {
+    id: 'subterranean',
+    name: 'Subterranean 🕳️',
+    desc: 'Tritone Tension - Heavy tension, dissonant, eerie.',
+    notes: [
+      { freq: 98.0, name: 'Root G2' },
+      { freq: 138.6, name: 'Dissonant Tritone C#3' },
+      { freq: 146.8, name: 'Perfect Fifth D3' },
+      { freq: 207.7, name: 'Tension Octave G#3' },
+      { freq: 220.0, name: 'Tension Ninth A3' }
+    ],
+    colors: ['bg-[#4a5568]', 'bg-[#718096]', 'bg-[#e2e8f0]', 'bg-[#cbd5e1]', 'bg-[#94a3b8]']
+  },
+  {
+    id: 'celestial',
+    name: 'Celestial Dream 🌌',
+    desc: 'Lydian Mode - Bright, mystical, floating spacerock.',
+    notes: [
+      { freq: 87.3, name: 'Root F2' },
+      { freq: 98.0, name: 'Major Second G2' },
+      { freq: 110.0, name: 'Major Third A2' },
+      { freq: 123.5, name: 'Sharp Fourth B2' },
+      { freq: 130.8, name: 'Perfect Fifth C3' }
+    ],
+    colors: ['bg-[#3b82f6]', 'bg-[#60a5fa]', 'bg-[#93c5fd]', 'bg-[#bfdbfe]', 'bg-[#dbeafe]']
+  },
+  {
+    id: 'ancient',
+    name: 'Ancient Ruins 🏛️',
+    desc: 'Dorian Mode - Soulful, historic vintage analogue.',
+    notes: [
+      { freq: 73.4, name: 'Root D2' },
+      { freq: 87.3, name: 'Minor Third F2' },
+      { freq: 98.0, name: 'Perfect Fourth G2' },
+      { freq: 123.5, name: 'Major Sixth B2' },
+      { freq: 130.8, name: 'Minor Seventh C3' }
+    ],
+    colors: ['bg-[#854d0e]', 'bg-[#a16207]', 'bg-[#ca8a04]', 'bg-[#facc15]', 'bg-[#fef08a]']
+  },
+  {
+    id: 'cosmic',
+    name: 'Cosmic Void 🪐',
+    desc: 'Whole Tone Scale - Dreamlike, floating, unresolved.',
+    notes: [
+      { freq: 116.5, name: 'Root Bb2' },
+      { freq: 130.8, name: 'Major Second C3' },
+      { freq: 146.8, name: 'Major Third D3' },
+      { freq: 164.8, name: 'Sharp Fourth E3' },
+      { freq: 185.0, name: 'Sharp Fifth F#3' }
+    ],
+    colors: ['bg-[#a21caf]', 'bg-[#c084fc]', 'bg-[#e9d5ff]', 'bg-[#f3e8ff]', 'bg-[#faf5ff]']
+  },
+  {
+    id: 'ethereal',
+    name: 'Ethereal Wind 🍃',
+    desc: 'Japanese Miyako-bushi - Dark, traditional, elegant.',
+    notes: [
+      { freq: 82.4, name: 'Root E2' },
+      { freq: 87.3, name: 'Flat Second F2' },
+      { freq: 110.0, name: 'Perfect Fourth A2' },
+      { freq: 123.5, name: 'Perfect Fifth B2' },
+      { freq: 130.8, name: 'Minor Sixth C3' }
+    ],
+    colors: ['bg-[#065f46]', 'bg-[#047857]', 'bg-[#10b981]', 'bg-[#34d399]', 'bg-[#a7f3d0]']
+  },
+  {
+    id: 'cyberpunk',
+    name: 'Cyberpunk Grid 🤖',
+    desc: 'Diminished Scale - Industrial, robotic, metallic.',
+    notes: [
+      { freq: 65.4, name: 'Root C2' },
+      { freq: 77.8, name: 'Minor Third Eb2' },
+      { freq: 92.5, name: 'Tritone F#2' },
+      { freq: 110.0, name: 'Major Sixth A2' },
+      { freq: 123.5, name: 'Major Seventh B2' }
+    ],
+    colors: ['bg-[#9d174d]', 'bg-[#be185d]', 'bg-[#db2777]', 'bg-[#f472b6]', 'bg-[#fbcfe8]']
+  },
+  {
+    id: 'radiance',
+    name: 'Warm Radiance ☀️',
+    desc: 'Major Pentatonic Overdrive - Bright, glowing, warm.',
+    notes: [
+      { freq: 130.8, name: 'Root C3' },
+      { freq: 146.8, name: 'Major Second D3' },
+      { freq: 164.8, name: 'Major Third E3' },
+      { freq: 196.0, name: 'Perfect Fifth G3' },
+      { freq: 220.0, name: 'Major Sixth A3' }
+    ],
+    colors: ['bg-[#ea580c]', 'bg-[#f97316]', 'bg-[#fb923c]', 'bg-[#ffedd5]', 'bg-[#fff7ed]']
+  }
+];
+
+const INSPIRATION_PAGES = [
+  {
+    title: "Vocal Triggers",
+    icon: "🎤",
+    prompts: [
+      "Sing a sustained vowel (Aah, Ooh, Mmm)",
+      "Whistle a brief 3-note ascending melody",
+      "Hum a low frequency drone to lock pitch",
+      "Whisper sibilant sounds (Sss, Shhh, Phhh)"
+    ]
+  },
+  {
+    title: "Physical & Tap Triggers",
+    icon: "🥁",
+    prompts: [
+      "Tap rhythmically on your tabletop or cup",
+      "Make rapid claps or sharp finger snaps",
+      "Rustle paper or shake keys close to mic",
+      "Click your tongue with different pitches"
+    ]
+  },
+  {
+    title: "Playing an Instrument",
+    icon: "🎸",
+    prompts: [
+      "Play a sustained chord on a keyboard",
+      "Pluck a guitar string or strike a chime",
+      "Blow a single note on a flute or recorder",
+      "Tap a glass cup gently with a spoon"
+    ]
+  },
+  {
+    title: "Prompts to Improvise",
+    icon: "🔮",
+    prompts: [
+      "Improvise a question and let echo answer",
+      "Speak a poetic word, let it dissolve",
+      "Imitate a machine-like pulse or clock tick",
+      "Start extremely quiet, then finish loud"
+    ]
+  }
+];
 
 export default function App() {
   const [audioState, setAudioState] = useState<AudioState>('idle');
@@ -45,13 +223,27 @@ export default function App() {
     pitch: true,
     reverb: true,
     delay: true,
-    vibrato: true,
+    tremolo: true,
+    bitcrusher: true,
     ringmod: true,
     distortion: true,
-    filter: true
+    filter: true,
+    flanger: true,
   });
+  const [droneVolume, setDroneVolume] = useState<number>(50); // range 0 to 100
   const [showInspirationBox, setShowInspirationBox] = useState<boolean>(false);
-  const [extraPads, setExtraPads] = useState<any[]>([]);
+  
+  // Custom multi-page inspiration states & scale states
+  const [selectedScaleId, setSelectedScaleId] = useState<string>('zen');
+  const [inspirationPageIndex, setInspirationPageIndex] = useState<number>(0);
+
+  const [extraPads, setExtraPads] = useState<any[]>([
+    { id: 'pad-0', name: 'Root A2', colorClass: 'bg-[#8da99d]', colorName: 'Zen Garden 🌸', freq: 110.0, isPlaying: false },
+    { id: 'pad-1', name: 'Major Third C#3', colorClass: 'bg-[#b6c7b9]', colorName: 'Zen Garden 🌸', freq: 138.6, isPlaying: false },
+    { id: 'pad-2', name: 'Perfect Fifth E3', colorClass: 'bg-[#988bb5]', colorName: 'Zen Garden 🌸', freq: 164.8, isPlaying: false },
+    { id: 'pad-3', name: 'Major Sixth F#3', colorClass: 'bg-[#8a9ca8]', colorName: 'Zen Garden 🌸', freq: 185.0, isPlaying: false },
+    { id: 'pad-4', name: 'Octave A3', colorClass: 'bg-[#c2aa72]', colorName: 'Zen Garden 🌸', freq: 220.0, isPlaying: false }
+  ]);
   const [downloadUrls, setDownloadUrls] = useState<{
     whole: string;
     raw: string;
@@ -112,6 +304,7 @@ export default function App() {
     engine.setSilenceThreshold(silenceThreshold / 1000);
     engine.setPauseDurationMs(pauseDurationMs);
     engine.setEnabledRandomEffects(chanceEffects);
+    engine.setDroneVolume(droneVolume / 100);
 
     engineRef.current = engine;
 
@@ -132,13 +325,45 @@ export default function App() {
     };
   }, []);
 
-  // Sync active drone pads to engine
+  // Sync active drone pads to engine & clean up any dangling oscillators
   useEffect(() => {
     if (engineRef.current) {
       const activeFreqs = extraPads.filter(pad => pad.isPlaying).map(pad => pad.freq);
       engineRef.current.updateActiveDrones(activeFreqs);
     }
-  }, [extraPads]);
+
+    const activeIds = new Set(extraPads.filter(pad => pad.isPlaying).map(pad => pad.id));
+    
+    // Safety lock: if no pads are active OR drone volume is 0%, force stop and disconnect ALL oscillators immediately
+    if (activeIds.size === 0 || droneVolume === 0) {
+      Object.keys(droneOscsRef.current).forEach(id => {
+        const active = droneOscsRef.current[id];
+        if (active) {
+          try {
+            active.osc.stop();
+            active.osc.disconnect();
+            active.gain.disconnect();
+          } catch (e) {}
+        }
+      });
+      droneOscsRef.current = {};
+    } else {
+      // Clean up any oscillators that are in droneOscsRef but are NOT active in extraPads state
+      Object.keys(droneOscsRef.current).forEach(id => {
+        if (!activeIds.has(id)) {
+          const active = droneOscsRef.current[id];
+          if (active) {
+            try {
+              active.osc.stop();
+              active.osc.disconnect();
+              active.gain.disconnect();
+            } catch (e) {}
+            delete droneOscsRef.current[id];
+          }
+        }
+      });
+    }
+  }, [extraPads, droneVolume]);
 
   // Sync state functions
   const handleIntensityChange = (val: number) => {
@@ -197,30 +422,44 @@ export default function App() {
     }
   };
 
-  // Add extra ambient pad
-  const addExtraPad = () => {
-    const droneTemplates = [
-      { freq: 110.0, name: 'Deep Root A2', color: { name: 'Suspense Crimson', bg: 'bg-[#b85a5a]' } },
-      { freq: 130.8, name: 'Dark Minor Third C3', color: { name: 'Cold Mist Slate', bg: 'bg-[#8a9ca8]' } },
-      { freq: 146.8, name: 'Suspended Fourth D3', color: { name: 'Tension Amber', bg: 'bg-[#ba9e68]' } },
-      { freq: 155.6, name: 'Tension Tritone D#3', color: { name: 'Screaming Purple', bg: 'bg-[#988bb5]' } },
-      { freq: 174.6, name: 'Dramatic Minor Sixth F3', color: { name: 'Dark Forest Sage', bg: 'bg-[#969e7f]' } },
-      { freq: 196.0, name: 'Moody Minor Seventh G3', color: { name: 'Gloomy Clay', bg: 'bg-[#cfa588]' } },
-      { freq: 246.9, name: 'Tension Ninth B3', color: { name: 'Eerie Ochre', bg: 'bg-[#c2aa72]' } }
-    ];
+  // Change active scale & glide frequencies
+  const handleScaleChange = (scaleId: string) => {
+    setSelectedScaleId(scaleId);
+    const newScale = DRONE_SCALES.find(s => s.id === scaleId) || DRONE_SCALES[0];
+    
+    setExtraPads(prev => {
+      return newScale.notes.map((note, index) => {
+        const existingPad = prev[index];
+        const isPlaying = existingPad ? existingPad.isPlaying : false;
+        const id = existingPad ? existingPad.id : `pad-${index}`;
+        
+        if (isPlaying) {
+          const active = droneOscsRef.current[id];
+          if (active) {
+            const ctx = engineRef.current?.getAudioContext();
+            if (ctx) {
+              try {
+                active.osc.frequency.setValueAtTime(active.osc.frequency.value, ctx.currentTime);
+                active.osc.frequency.exponentialRampToValueAtTime(note.freq, ctx.currentTime + 2.0);
+              } catch (e) {
+                try {
+                  active.osc.frequency.linearRampToValueAtTime(note.freq, ctx.currentTime + 2.0);
+                } catch (err) {}
+              }
+            }
+          }
+        }
 
-    const template = droneTemplates[extraPads.length % droneTemplates.length];
-    
-    const newPad = {
-      id: `pad-${Date.now()}`,
-      name: template.name,
-      colorClass: template.color.bg,
-      colorName: template.color.name,
-      freq: template.freq,
-      isPlaying: false,
-    };
-    
-    setExtraPads([...extraPads, newPad]);
+        return {
+          id,
+          name: note.name,
+          colorClass: newScale.colors[index % newScale.colors.length],
+          colorName: newScale.name,
+          freq: note.freq,
+          isPlaying,
+        };
+      });
+    });
   };
 
   const handleCentralNodeClick = () => {
@@ -240,6 +479,29 @@ export default function App() {
     }
   };
 
+  const handleDroneVolumeChange = (val: number) => {
+    setDroneVolume(val);
+    const volumeFactor = val / 100;
+    if (engineRef.current) {
+      engineRef.current.setDroneVolume(volumeFactor);
+    }
+    const ctx = engineRef.current?.getAudioContext();
+    if (ctx) {
+      Object.values(droneOscsRef.current).forEach((active: any) => {
+        try {
+          if (volumeFactor === 0) {
+            // Instantly and absolutely cut the sound to prevent any leakage
+            active.gain.gain.cancelScheduledValues(ctx.currentTime);
+            active.gain.gain.setValueAtTime(0, ctx.currentTime);
+          } else {
+            active.gain.gain.setValueAtTime(active.gain.gain.value, ctx.currentTime);
+            active.gain.gain.linearRampToValueAtTime(0.08 * volumeFactor, ctx.currentTime + 0.15);
+          }
+        } catch (e) {}
+      });
+    }
+  };
+
   // Toggle ambient synthesizer drone
   const toggleDronePad = (padId: string, freq: number) => {
     const ctx = engineRef.current?.getAudioContext();
@@ -248,57 +510,68 @@ export default function App() {
       return;
     }
 
-    setExtraPads(prev => prev.map(pad => {
-      if (pad.id === padId) {
-        const isNowPlaying = !pad.isPlaying;
-        
-        if (isNowPlaying) {
+    const pad = extraPads.find(p => p.id === padId);
+    if (!pad) return;
+    const isNowPlaying = !pad.isPlaying;
+
+    if (isNowPlaying) {
+      try {
+        // Stop and disconnect any existing oscillator for this padId first to prevent memory/audio leaks!
+        const existing = droneOscsRef.current[padId];
+        if (existing) {
           try {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(freq, ctx.currentTime);
-            
-            // Soft background volume
-            gain.gain.setValueAtTime(0, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 1.2); // sweet fade-in
-            
-            const filter = ctx.createBiquadFilter();
-            filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(450, ctx.currentTime); // warm filtering
-            
-            osc.connect(filter);
-            filter.connect(gain);
-            gain.connect(ctx.destination);
-            
-            osc.start();
-            droneOscsRef.current[padId] = { osc, gain };
-          } catch (e) {
-            console.error("Failed to play drone:", e);
-          }
-        } else {
-          const active = droneOscsRef.current[padId];
-          if (active) {
-            try {
-              active.gain.gain.setValueAtTime(active.gain.gain.value, ctx.currentTime);
-              active.gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-              setTimeout(() => {
-                try {
-                  active.osc.stop();
-                  active.osc.disconnect();
-                  active.gain.disconnect();
-                } catch (err) {}
-              }, 500);
-            } catch (err) {}
-            delete droneOscsRef.current[padId];
-          }
+            existing.osc.stop();
+            existing.osc.disconnect();
+            existing.gain.disconnect();
+          } catch (e) {}
+          delete droneOscsRef.current[padId];
         }
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         
-        return { ...pad, isPlaying: isNowPlaying };
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        
+        // Soft background volume scaled by droneVolume
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        const targetGain = 0.08 * (droneVolume / 100);
+        gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 1.2); // sweet fade-in
+        
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(450, ctx.currentTime); // warm filtering
+        
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start();
+        droneOscsRef.current[padId] = { osc, gain };
+      } catch (e) {
+        console.error("Failed to play drone:", e);
       }
-      return pad;
-    }));
+    } else {
+      const active = droneOscsRef.current[padId];
+      if (active) {
+        try {
+          active.gain.gain.cancelScheduledValues(ctx.currentTime);
+          active.gain.gain.setValueAtTime(active.gain.gain.value, ctx.currentTime);
+          active.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.05);
+          active.osc.stop(ctx.currentTime + 0.06);
+          setTimeout(() => {
+            try {
+              active.osc.disconnect();
+              active.gain.disconnect();
+            } catch (err) {}
+          }, 100);
+        } catch (err) {}
+        delete droneOscsRef.current[padId];
+      }
+    }
+
+    // Safely update the state using a pure, side-effect-free mapper function
+    setExtraPads(prev => prev.map(p => p.id === padId ? { ...p, isPlaying: isNowPlaying } : p));
   };
 
   // Start the improvisation session
@@ -311,6 +584,8 @@ export default function App() {
         engineRef.current.setRecordingSession(recordMode);
         setRecordedCount(0);
         await engineRef.current.start();
+
+        // No automatic drone starting on session start (only start when explicitly activated)
       } catch (err: any) {
         console.error(err);
         setMicError(
@@ -329,6 +604,17 @@ export default function App() {
     let finalCount = 0;
     let blobs: { whole: Blob | null, raw: Blob | null, processed: Blob | null } = { whole: null, raw: null, processed: null };
     
+    // Stop and disconnect all active background drones
+    Object.values(droneOscsRef.current).forEach((active: any) => {
+      try {
+        active.osc.stop();
+        active.osc.disconnect();
+        active.gain.disconnect();
+      } catch (e) {}
+    });
+    droneOscsRef.current = {};
+    setExtraPads(prev => prev.map(pad => ({ ...pad, isPlaying: false })));
+
     if (engineRef.current) {
       finalCount = engineRef.current.getSessionBuffersCount();
       if (wasRecording && finalCount > 0) {
@@ -406,6 +692,14 @@ export default function App() {
 
   return (
     <div id="sound_imp_app" className="min-h-screen bg-[#FAF6ED] text-zinc-950 font-sans selection:bg-zinc-950/10 flex flex-col antialiased">
+      {/* Ambient Status Shimmer/Pulse Border & Glow */}
+      {audioState === 'recording_sound' && (
+        <div className="fixed inset-0 pointer-events-none z-50 bg-rose-500/[0.03] border-[12px] border-rose-600/30 animate-pulse shadow-[inset_0_0_100px_rgba(225,29,72,0.25)] transition-all duration-700" />
+      )}
+      {audioState === 'playing_answer' && (
+        <div className="fixed inset-0 pointer-events-none z-50 bg-blue-500/[0.03] border-[12px] border-blue-600/30 animate-pulse shadow-[inset_0_0_100px_rgba(37,99,235,0.25)] transition-all duration-700" />
+      )}
+
       {/* Visual Title / Header following soundcomp look exactly */}
       <header className="py-8 px-4 flex flex-col items-center">
         <h1 className="font-display font-black text-5xl md:text-6xl text-zinc-950 tracking-tight text-center uppercase select-none">
@@ -445,28 +739,59 @@ export default function App() {
           <motion.div
             initial={{ opacity: 0, y: -5 }}
             animate={{ opacity: 1, y: 0 }}
-            className="max-w-md w-full bg-[#FAF3D1] border-2 border-zinc-950 p-4 mt-5 text-center text-xs font-mono text-zinc-900 shadow-xs retro-shadow-sm rounded-none"
+            className="max-w-md w-full bg-[#FAF3D1] border-2 border-zinc-950 p-4 mt-5 text-center text-xs font-mono text-zinc-900 shadow-xs retro-shadow-sm rounded-none min-h-[220px] flex flex-col justify-between"
           >
-            <span className="font-bold text-zinc-950 block mb-2 uppercase tracking-wide border-b border-zinc-950/20 pb-1.5">
-              💡 EXPERIMENTAL TRIGGERS
-            </span>
-            <div className="grid grid-cols-2 gap-3 text-[10px] text-left text-zinc-800">
-              <div className="flex items-start gap-1">
-                <span className="text-zinc-500 font-bold">&bull;</span>
-                <span>Sing a sustained vowel (Aah, Ooh)</span>
+            <div>
+              {/* Header with page title & pagination controls */}
+              <div className="flex items-center justify-between border-b border-zinc-950/20 pb-1.5 mb-2.5 select-none">
+                <span className="font-black text-zinc-950 uppercase tracking-wide flex items-center gap-1">
+                  <span>{INSPIRATION_PAGES[inspirationPageIndex].icon}</span>
+                  <span>{INSPIRATION_PAGES[inspirationPageIndex].title}</span>
+                </span>
+                
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setInspirationPageIndex(prev => (prev - 1 + INSPIRATION_PAGES.length) % INSPIRATION_PAGES.length)}
+                    className="p-1 border border-zinc-950 bg-[#FAF6ED] hover:bg-zinc-950 hover:text-white transition-colors cursor-pointer"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="h-3 w-3 text-current" />
+                  </button>
+                  <span className="text-[9px] font-black tracking-widest text-zinc-600 px-1">
+                    {inspirationPageIndex + 1}/{INSPIRATION_PAGES.length}
+                  </span>
+                  <button
+                    onClick={() => setInspirationPageIndex(prev => (prev + 1) % INSPIRATION_PAGES.length)}
+                    className="p-1 border border-zinc-950 bg-[#FAF6ED] hover:bg-zinc-950 hover:text-white transition-colors cursor-pointer"
+                    title="Next Page"
+                  >
+                    <ChevronRight className="h-3 w-3 text-current" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-start gap-1">
-                <span className="text-zinc-500 font-bold">&bull;</span>
-                <span>Make rapid claps or finger snaps</span>
+
+              {/* Grid with 4 items */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[10px] text-left text-zinc-800">
+                {INSPIRATION_PAGES[inspirationPageIndex].prompts.map((prompt, index) => (
+                  <div key={index} className="flex items-start gap-1">
+                    <span className="text-zinc-500 font-bold shrink-0">&bull;</span>
+                    <span className="leading-tight">{prompt}</span>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-start gap-1">
-                <span className="text-zinc-500 font-bold">&bull;</span>
-                <span>Whistle a brief 3-note melody</span>
-              </div>
-              <div className="flex items-start gap-1">
-                <span className="text-zinc-500 font-bold">&bull;</span>
-                <span>Tap rhythmically on your tabletop</span>
-              </div>
+            </div>
+
+            {/* Pagination dot indicator footer */}
+            <div className="flex justify-center gap-1.5 mt-4 pt-2 border-t border-zinc-950/5 select-none">
+              {INSPIRATION_PAGES.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setInspirationPageIndex(i)}
+                  className={`h-1.5 w-1.5 rounded-full transition-all cursor-pointer ${
+                    inspirationPageIndex === i ? 'bg-zinc-950 scale-125' : 'bg-zinc-950/20 hover:bg-zinc-950/50'
+                  }`}
+                />
+              ))}
             </div>
           </motion.div>
         )}
@@ -511,8 +836,20 @@ export default function App() {
           {/* LEFT COLUMN: Improv Core & Controls (7 columns) */}
           <div className="lg:col-span-7 flex flex-col gap-6">
                  {/* Bento Block 1: Improv Engine State Circle */}
-            <div className="bg-[#b3b19a] border-2 border-zinc-950 rounded-none p-6 retro-shadow flex flex-col justify-between items-center relative overflow-hidden min-h-[440px] transition-all duration-300">
+            <div className="bg-[#b3b19a] border-2 border-zinc-950 rounded-none p-6 retro-shadow flex flex-col justify-between items-center relative overflow-hidden min-h-[480px] transition-all duration-300 z-10">
               
+              {/* Real-time Oscilloscope Transparent Background */}
+              <div className="absolute inset-0 pointer-events-none opacity-[0.16] z-0">
+                <WaveVisualizer
+                  dataArray={visualData.dataArray}
+                  rms={visualData.rms}
+                  isInput={visualData.isInput}
+                  isActive={audioState !== 'idle'}
+                  state={audioState}
+                  transparentBg={true}
+                />
+              </div>
+
               {/* Soft background decor based on state */}
               <div className="absolute inset-0 pointer-events-none opacity-20">
                 <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full blur-[80px] transition-all duration-1000 ${
@@ -523,7 +860,7 @@ export default function App() {
               </div>
 
               {/* Top/Center content */}
-              <div className="w-full flex flex-col items-center justify-center flex-1 z-10 py-4">
+              <div className="w-full flex flex-col items-center justify-center h-[350px] md:h-[370px] z-10 py-4 relative">
                 <AnimatePresence mode="wait">
                   {audioState === 'idle' ? (
                     // IDLE VIEW: Start Session Trigger
@@ -538,9 +875,9 @@ export default function App() {
                         <Mic className="h-7 w-7 text-zinc-950" />
                       </div>
                       <div>
-                        <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Improvise with Machine Synthesis</h2>
-                        <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1 leading-relaxed font-bold">
-                          Say a word, sing a tone, whistle or clap! The engine auto-detects sound pauses, processes your inputs with custom modular effects, and plays back its creative response.
+                        <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Make a sound.</h2>
+                        <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1.5 leading-relaxed font-bold uppercase tracking-wide">
+                          Speak, sing, play or tap!
                         </p>
                       </div>
                     </motion.div>
@@ -558,15 +895,15 @@ export default function App() {
                         
                         {/* State outer ripple circle */}
                         <div className={`absolute inset-0 rounded-full transition-all duration-700 border-2 ${
-                          audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-900 scale-100' :
+                          audioState === 'waiting_for_sound' ? 'border-dashed border-emerald-600/60 scale-100 animate-pulse' :
                           audioState === 'recording_sound' ? 'border-rose-600 animate-pulse' :
-                          audioState === 'playing_answer' ? 'border-zinc-950 animate-pulse' : 'border-zinc-500 scale-90'
+                          audioState === 'playing_answer' ? 'border-blue-600 animate-pulse' : 'border-zinc-500 scale-90'
                         }`} />
 
                         <div className={`absolute inset-2.5 rounded-full transition-all duration-700 border ${
-                          audioState === 'waiting_for_sound' ? 'border-dashed border-zinc-800' :
+                          audioState === 'waiting_for_sound' ? 'border-dashed border-emerald-600/30 bg-emerald-50/[0.03]' :
                           audioState === 'recording_sound' ? 'border-rose-600/30 bg-rose-50/10 scale-105' :
-                          audioState === 'playing_answer' ? 'border-zinc-950/30 bg-zinc-950/10 scale-105' : 'border-zinc-600'
+                          audioState === 'playing_answer' ? 'border-blue-600/30 bg-blue-50/10 scale-105' : 'border-zinc-600'
                         }`} />
 
                         {/* State Central Node Core */}
@@ -576,10 +913,10 @@ export default function App() {
                           title={audioState === 'playing_answer' ? 'Click to Stop Reply and Start New Round' : undefined}
                           className={`h-24 w-24 rounded-full flex flex-col items-center justify-center text-[#FAF6ED] transition-all duration-500 shadow-md border-2 border-zinc-950 outline-none ${
                             audioState === 'initializing' ? 'bg-zinc-400 cursor-not-allowed' :
-                            audioState === 'waiting_for_sound' ? 'bg-zinc-950 cursor-default' :
+                            audioState === 'waiting_for_sound' ? 'bg-emerald-600 hover:bg-emerald-700 cursor-default animate-pulse' :
                             audioState === 'recording_sound' ? 'bg-rose-600 scale-105 cursor-default' :
                             audioState === 'processing' ? 'bg-amber-500 animate-pulse cursor-not-allowed' :
-                            audioState === 'playing_answer' ? 'bg-zinc-950 scale-105 hover:bg-zinc-800 cursor-pointer active:scale-95 hover:ring-4 hover:ring-zinc-950/25' : 'bg-zinc-50 cursor-default'
+                            audioState === 'playing_answer' ? 'bg-blue-600 scale-105 hover:bg-blue-700 cursor-pointer active:scale-95 hover:ring-4 hover:ring-blue-600/25' : 'bg-zinc-50 cursor-default'
                           }`}
                         >
                           {audioState === 'initializing' && <span className="text-[10px] font-mono tracking-widest font-black uppercase">BOOTING</span>}
@@ -633,7 +970,7 @@ export default function App() {
                         </h3>
                         
                         <p className="text-[11px] text-zinc-900 font-mono mt-0.5 max-w-[340px] mx-auto leading-relaxed h-5 font-bold">
-                          {audioState === 'waiting_for_sound' && 'Speak, whistle, sing or tap!'}
+                          {audioState === 'waiting_for_sound' && 'Speak, sing, play or tap!'}
                           {audioState === 'recording_sound' && 'Stop making sound to trigger playback.'}
                           {audioState === 'processing' && 'Rendering audio effects graph offline...'}
                           {audioState === 'playing_answer' && 'Listen to the modified replication.'}
@@ -664,6 +1001,33 @@ export default function App() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+              </div>
+
+              {/* DIRECT QUICK CONTROLS: LOOP, REVERSE, FILTER */}
+              <div className="w-full mt-3 pt-3 z-10 flex items-center justify-around font-mono text-[9px] md:text-[10px] font-black uppercase text-zinc-950 select-none bg-zinc-950/10 p-2.5 border-2 border-zinc-950/25">
+                <button 
+                  onClick={() => handleLoopingChange(!isLooping)}
+                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isLooping ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
+                >
+                  <span>LOOP</span>
+                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isLooping ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
+                </button>
+
+                <button 
+                  onClick={() => handleReversedChange(!isReversed)}
+                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isReversed ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
+                >
+                  <span>REVERSE</span>
+                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isReversed ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
+                </button>
+
+                <button 
+                  onClick={() => handleFilterEnabledChange(!isFilterEnabled)}
+                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isFilterEnabled ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
+                >
+                  <span>FILTER</span>
+                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isFilterEnabled ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
+                </button>
               </div>
 
               {/* INTEGRATED SESSION CONTROL DESK */}
@@ -812,7 +1176,7 @@ export default function App() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        const allOn = { pitch: true, reverb: true, delay: true, vibrato: true, ringmod: true, distortion: true, filter: true };
+                        const allOn = { pitch: true, reverb: true, delay: true, tremolo: true, bitcrusher: true, ringmod: true, distortion: true, filter: true, flanger: true };
                         setChanceEffects(allOn);
                         if (engineRef.current) engineRef.current.setEnabledRandomEffects(allOn);
                       }}
@@ -823,7 +1187,7 @@ export default function App() {
                     <span className="text-zinc-400 font-mono text-[9px]">|</span>
                     <button
                       onClick={() => {
-                        const allOff = { pitch: false, reverb: false, delay: false, vibrato: false, ringmod: false, distortion: false, filter: false };
+                        const allOff = { pitch: false, reverb: false, delay: false, tremolo: false, bitcrusher: false, ringmod: false, distortion: false, filter: false, flanger: false };
                         setChanceEffects(allOff);
                         if (engineRef.current) engineRef.current.setEnabledRandomEffects(allOff);
                       }}
@@ -843,7 +1207,9 @@ export default function App() {
                     { key: 'pitch', label: 'Pitch Shift', desc: 'Chipmunk/Giant', icon: '🐿️' },
                     { key: 'reverb', label: 'Reverb Space', desc: 'Ambient Room', icon: '🌌' },
                     { key: 'delay', label: 'Echo Delay', desc: 'Slapback/Dub', icon: '⏱️' },
-                    { key: 'vibrato', label: 'Warble LFO', desc: 'Psychedelic Warble', icon: '🌀' },
+                    { key: 'tremolo', label: 'Pulse Tremolo', desc: 'Volume LFO', icon: '📳' },
+                    { key: 'bitcrusher', label: 'Lo-Fi Bitcrush', desc: 'Bit Quantizer', icon: '👾' },
+                    { key: 'flanger', label: 'Space Flanger', desc: 'Phase Sweeps', icon: '🌀' },
                     { key: 'ringmod', label: 'Ring Mod', desc: 'Metallic Robot', icon: '🤖' },
                     { key: 'distortion', label: 'Fuzz Clipper', desc: 'Crunchy Overdrive', icon: '🔥' },
                     { key: 'filter', label: 'Filter Sweep', desc: 'Sub/Radio Sweeps', icon: '📻' },
@@ -941,53 +1307,10 @@ export default function App() {
                       }}
                     />
                   </label>
-
-                  {/* Micro switches */}
-                  <div className="flex items-center justify-between font-mono text-[10px] font-black uppercase text-zinc-950 mt-3 border-t border-zinc-950/10 pt-2.5 select-none">
-                    <button 
-                      onClick={() => handleLoopingChange(!isLooping)}
-                      className="flex items-center gap-1 cursor-pointer hover:opacity-80"
-                    >
-                      <span>LOOP</span>
-                      <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isLooping ? 'bg-zinc-950' : 'bg-transparent'}`} />
-                    </button>
-
-                    <button 
-                      onClick={() => handleReversedChange(!isReversed)}
-                      className="flex items-center gap-1 cursor-pointer hover:opacity-80"
-                    >
-                      <span>REVERSE</span>
-                      <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isReversed ? 'bg-zinc-950' : 'bg-transparent'}`} />
-                    </button>
-
-                    <button 
-                      onClick={() => handleFilterEnabledChange(!isFilterEnabled)}
-                      className="flex items-center gap-1 cursor-pointer hover:opacity-80"
-                    >
-                      <span>FILTER</span>
-                      <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isFilterEnabled ? 'bg-zinc-950' : 'bg-transparent'}`} />
-                    </button>
-                  </div>
                 </div>
               </div>
 
-              {/* Oscilloscope Real-time viz */}
-              <div className="flex flex-col gap-2 border-t border-zinc-950/15 pt-4">
-                <span className="text-[10px] font-mono font-black text-zinc-950/70 uppercase tracking-wider">
-                  Real-time Signal Monitor (Oscilloscope)
-                </span>
-                <div className="bg-zinc-950 border-2 border-zinc-950 h-28 relative flex items-center justify-center shadow-xs overflow-hidden rounded-none">
-                  <div className="absolute left-2 top-2 bottom-2 w-1 bg-white/20 border-l border-r border-white/30" />
-                  <div className="absolute right-2 top-2 bottom-2 w-1 bg-white/20 border-l border-r border-white/30" />
-                  <WaveVisualizer
-                    dataArray={visualData.dataArray}
-                    rms={visualData.rms}
-                    isInput={visualData.isInput}
-                    isActive={audioState !== 'idle'}
-                    state={audioState}
-                  />
-                </div>
-              </div>
+
 
             </div>
 
@@ -1015,66 +1338,86 @@ export default function App() {
 
         {/* Ambient Synthesizer Drone Deck at the bottom */}
         <div className="border-2 border-zinc-950 p-5 bg-white retro-shadow mt-2 flex flex-col gap-4 rounded-none">
-          <div className="flex items-center justify-between border-b border-zinc-950/15 pb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-950/15 pb-3 gap-4">
             <div>
               <span className="font-display font-black text-sm tracking-widest text-zinc-950 uppercase block">
                 Ambient Drones Base
               </span>
-              <span className="text-[9px] font-mono text-zinc-500 uppercase">
-                Procedural low-frequency triangle waves to layer beautiful background chords
+              <span className="text-[10px] text-zinc-600 font-mono block mt-1 leading-relaxed font-bold">
+                CURRENT SCALE: <span className="text-zinc-950 font-black">{DRONE_SCALES.find(s => s.id === selectedScaleId)?.name}</span> ({DRONE_SCALES.find(s => s.id === selectedScaleId)?.desc})
               </span>
             </div>
-            <button
-              onClick={addExtraPad}
-              className="bg-zinc-950 hover:bg-zinc-850 text-[#FAF6ED] border-2 border-zinc-950 font-mono font-black text-[10px] px-4 py-2 rounded-none transition-all cursor-pointer uppercase flex items-center gap-1"
-            >
-              <span>+ Add Ambient Tone</span>
-            </button>
+            
+            {/* Drone volume fader and Scale Selector */}
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Scale Dropdown Selector */}
+              <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-950/20 px-3 py-1.5 rounded-none font-mono text-[10px]">
+                <span className="font-black text-zinc-700 uppercase">SCALE:</span>
+                <select
+                  value={selectedScaleId}
+                  onChange={(e) => handleScaleChange(e.target.value)}
+                  className="bg-white border-2 border-zinc-950 px-2 py-1 text-[10px] font-black uppercase text-zinc-950 outline-none cursor-pointer rounded-none"
+                >
+                  {DRONE_SCALES.map((scale) => (
+                    <option key={scale.id} value={scale.id}>
+                      {scale.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Volume Slider */}
+              <div className="flex items-center gap-2.5 bg-zinc-50 border border-zinc-950/20 px-3 py-1.5 rounded-none font-mono text-[10px]">
+                <span className="font-black text-zinc-700 uppercase">DRONE VOL:</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={droneVolume}
+                  onChange={(e) => handleDroneVolumeChange(parseInt(e.target.value))}
+                  className="w-24 accent-zinc-950 h-1 bg-zinc-300 rounded-none appearance-none cursor-pointer animate-none"
+                  style={{ accentColor: '#000000' }}
+                />
+                <span className="font-black text-zinc-950 w-8 text-right">{droneVolume}%</span>
+              </div>
+            </div>
           </div>
 
-          {/* Spawned extra pads for ambient synthesizer drones */}
-          {extraPads.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-1">
-              {extraPads.map((pad) => (
-                <motion.div
-                  key={pad.id}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className={`${pad.colorClass} border-2 border-zinc-950 p-4 retro-shadow-xs flex flex-col gap-3 relative rounded-none`}
-                >
-                  <div className="flex items-center justify-between border-b border-zinc-950/15 pb-2">
-                    <span className="font-display font-black text-xs tracking-widest text-zinc-950 uppercase">{pad.name}</span>
-                    <button
-                      onClick={() => toggleDronePad(pad.id, pad.freq)}
-                      className="h-7 w-7 rounded-full bg-zinc-950 flex items-center justify-center text-white border-2 border-zinc-950 hover:bg-zinc-800 transition-all cursor-pointer shadow-xs"
-                    >
-                      {pad.isPlaying ? (
-                        <Square className="h-2.5 w-2.5 fill-current text-rose-500 animate-pulse" />
-                      ) : (
-                        <Play className="h-2.5 w-2.5 fill-current text-white" />
-                      )}
-                    </button>
-                  </div>
+          {/* Scale Voice Pads representing the 5 scale notes */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mt-1">
+            {extraPads.map((pad) => (
+              <motion.div
+                key={pad.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`${pad.colorClass} border-2 border-zinc-950 p-4 retro-shadow-xs flex flex-col gap-3 relative rounded-none`}
+              >
+                <div className="flex items-center justify-between border-b border-zinc-950/15 pb-2">
+                  <span className="font-display font-black text-xs tracking-widest text-zinc-950 uppercase">{pad.name}</span>
+                  <button
+                    onClick={() => toggleDronePad(pad.id, pad.freq)}
+                    className="h-7 w-7 rounded-full bg-zinc-950 flex items-center justify-center text-white border-2 border-zinc-950 hover:bg-zinc-800 transition-all cursor-pointer shadow-xs"
+                  >
+                    {pad.isPlaying ? (
+                      <Square className="h-2.5 w-2.5 fill-current text-rose-500 animate-pulse" />
+                    ) : (
+                      <Play className="h-2.5 w-2.5 fill-current text-white" />
+                    )}
+                  </button>
+                </div>
 
-                  <div className="bg-white/50 border border-zinc-950/20 p-2 text-center rounded-none">
-                    <span className="text-[9px] font-mono font-black text-zinc-950 block">DRONE TONE</span>
-                    <span className="text-base font-display font-black text-zinc-950 block mt-0.5">{pad.freq} Hz</span>
-                    <span className="text-[8px] font-mono text-zinc-600 block mt-0.5">{pad.colorName}</span>
-                  </div>
+                <div className="bg-white/50 border border-zinc-950/20 p-2 text-center rounded-none">
+                  <span className="text-[9px] font-mono font-black text-zinc-950 block">DRONE TONE</span>
+                  <span className="text-base font-display font-black text-zinc-950 block mt-0.5">{pad.freq.toFixed(1)} Hz</span>
+                  <span className="text-[8px] font-mono text-zinc-600 block mt-0.5">{pad.colorName}</span>
+                </div>
 
-                  <div className="text-[9px] font-mono font-black text-zinc-950 text-center uppercase tracking-wider">
-                    {pad.isPlaying ? "🔊 Stream Active" : "🔇 Powered Off"}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-6 border-2 border-dashed border-zinc-950/10 bg-zinc-50/50">
-              <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase tracking-wider">
-                No ambient drone generators active. Click "+ Add Ambient Tone" to spin up background retro oscillators.
-              </span>
-            </div>
-          )}
+                <div className="text-[9px] font-mono font-black text-zinc-950 text-center uppercase tracking-wider">
+                  {pad.isPlaying ? "🔊 Stream Active" : "🔇 Powered Off"}
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
 
       </main>

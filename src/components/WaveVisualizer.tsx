@@ -6,6 +6,7 @@ interface WaveVisualizerProps {
   isInput: boolean;
   isActive: boolean;
   state: 'idle' | 'initializing' | 'waiting_for_sound' | 'recording_sound' | 'processing' | 'playing_answer';
+  transparentBg?: boolean;
 }
 
 export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
@@ -13,10 +14,13 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
   rms,
   isInput,
   isActive,
-  state
+  state,
+  transparentBg = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
+  const POINTS = 128;
+  const smoothedPointsRef = useRef<number[]>(new Array(POINTS).fill(0));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,7 +49,7 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
       ctx.clearRect(0, 0, width, height);
 
       // Draw horizontal reference line
-      ctx.strokeStyle = 'rgba(232, 230, 224, 0.4)';
+      ctx.strokeStyle = transparentBg ? 'rgba(24, 24, 27, 0.15)' : 'rgba(232, 230, 224, 0.4)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, height / 2);
@@ -55,7 +59,7 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
       if (!isActive || dataArray.length === 0) {
         // Render a gentle static breathing wave if idle
         ctx.beginPath();
-        ctx.strokeStyle = '#E8E6E0';
+        ctx.strokeStyle = transparentBg ? 'rgba(24, 24, 27, 0.35)' : '#E8E6E0';
         ctx.lineWidth = 1.5;
         const time = Date.now() * 0.003;
         for (let i = 0; i < width; i++) {
@@ -77,8 +81,8 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
         strokeColor = '#0EA5E9'; // Sky blue (Playback)
         glowColor = 'rgba(14, 165, 233, 0.3)';
       } else if (state === 'waiting_for_sound') {
-        strokeColor = '#94A3B8'; // Slate grey (Waiting)
-        glowColor = 'rgba(148, 163, 184, 0.2)';
+        strokeColor = transparentBg ? '#18181b' : '#94A3B8'; // Slate grey or zinc-900
+        glowColor = transparentBg ? 'rgba(24, 24, 27, 0.2)' : 'rgba(148, 163, 184, 0.2)';
       }
 
       // 3. Render waveform line
@@ -89,15 +93,32 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
+      // Downsample and exponentially smooth waveform data
+      const windowSize = Math.floor(dataArray.length / POINTS);
+      for (let k = 0; k < POINTS; k++) {
+        let sum = 0;
+        const startIdx = k * windowSize;
+        const endIdx = Math.min(dataArray.length, (k + 1) * windowSize);
+        const count = endIdx - startIdx;
+        
+        for (let j = startIdx; j < endIdx; j++) {
+          sum += dataArray[j] / 128.0 - 1.0; // range -1.0 to 1.0
+        }
+        
+        const targetVal = count > 0 ? sum / count : 0;
+        // Calm smoothing factor (0.75 makes it beautifully slow and smooth)
+        const smoothFactor = 0.75;
+        smoothedPointsRef.current[k] = smoothedPointsRef.current[k] * smoothFactor + targetVal * (1 - smoothFactor);
+      }
+
       ctx.beginPath();
-      const sliceWidth = width / dataArray.length;
+      const sliceWidth = width / POINTS;
       let x = 0;
 
-      for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] / 128.0; // 0.0 to 2.0
-        // Scale vertical height based on current rms to boost low volumes visually
-        const boost = rms > 0 ? Math.max(1, 0.08 / rms) : 1;
-        const offset = (v - 1.0) * boost * (height / 2.5);
+      for (let i = 0; i < POINTS; i++) {
+        // Boost signal dynamically but cap it to avoid extreme screen-clipping lines
+        const boost = rms > 0 ? Math.max(1.0, Math.min(3.5, 0.15 / (rms + 0.005))) : 1.0;
+        const offset = smoothedPointsRef.current[i] * boost * (height / 2.3);
         const y = height / 2 + offset;
 
         if (i === 0) {
@@ -135,7 +156,15 @@ export const WaveVisualizer: React.FC<WaveVisualizerProps> = ({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [dataArray, rms, isInput, isActive, state]);
+  }, [dataArray, rms, isInput, isActive, state, transparentBg]);
+
+  if (transparentBg) {
+    return (
+      <div className="w-full h-full relative overflow-hidden">
+        <canvas ref={canvasRef} className="w-full h-full block" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-full min-h-[140px] bg-slate-900/5 dark:bg-slate-900/20 rounded-xl overflow-hidden border border-studio-border/50">

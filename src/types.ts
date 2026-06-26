@@ -24,8 +24,16 @@ export interface EffectSettings {
   distortionAmount: number; // WaveShaper distortion (0 to 150)
   filterType: 'none' | 'lowpass' | 'highpass' | 'bandpass';
   filterFrequency: number; // Frequency in Hz
-  vibratoRate: number;    // LFO frequency in Hz (0 to 10)
-  vibratoDepth: number;   // LFO depth in seconds (0 to 0.01)
   ringModFreq: number;    // Ring modulator carrier frequency (0 to 200 Hz)
   ringModWet: number;     // Wet mix for ring modulation (0 to 1)
+  tremoloRate: number;    // LFO frequency in Hz (0 to 15)
+  tremoloDepth: number;   // LFO depth (0 to 1)
+  bitcrusherWet: number;  // Wet mix for bit reduction (0 to 1)
+  bitcrusherBits: number; // Bits parameter (2 to 8)
+  flangerRate: number;    // LFO frequency in Hz (0.1 to 5)
+  flangerDepth: number;   // LFO depth (0.001 to 0.005)
+  flangerWet: number;     // Wet mix for flanger (0 to 1)
+  vibratoRate: number;    // LFO frequency in Hz (0.1 to 10)
+  vibratoDepth: number;   // LFO depth in seconds (e.g. 0.001 to 0.004)
+  vibratoWet: number;     // Wet mix for tape vibrato (0 to 1)
 }
