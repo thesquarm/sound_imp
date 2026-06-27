@@ -29,6 +29,7 @@ export class SoundImproEngine {
   private silenceThreshold = 0.012;     // RMS level below which we consider it silent
   private pauseDurationMs = 1200;       // Continuous silent ms needed to trigger pause end
   private maxRecordingMs = 12000;       // Max recording length to prevent infinite loops (12s)
+  private overlapDuration = 0.5;        // Continuous sound overlap in seconds (0 to 2s)
   
   // Real-time tracking
   private isAnalyzing = false;
@@ -263,6 +264,14 @@ export class SoundImproEngine {
     return this.pauseDurationMs;
   }
 
+  public setOverlapDuration(val: number) {
+    this.overlapDuration = val;
+  }
+
+  public getOverlapDuration(): number {
+    return this.overlapDuration;
+  }
+
   public clearSessionBuffers() {
     this.sessionBuffers = [];
     this.roundBuffers.clear();
@@ -404,6 +413,8 @@ export class SoundImproEngine {
     if (!this.isAnalyzing) return;
     requestAnimationFrame(this.loop);
 
+    // If we are waiting for sound, recording sound, or processing, we analyze mic input.
+    // Otherwise, we analyze the playback for visualization and feedback cancellation.
     const isPlayback = this.currentState === 'playing_answer';
     const activeAnalyser = isPlayback ? this.playbackAnalyser : this.micAnalyser;
 
@@ -426,8 +437,22 @@ export class SoundImproEngine {
 
     const now = Date.now();
 
+    // Measure playback volume if any playback is currently active
+    let playbackRms = 0;
+    if (this.playbackAnalyser && this.activeSourceNode) {
+      const pBufferLength = this.playbackAnalyser.frequencyBinCount;
+      const pDataArray = new Uint8Array(pBufferLength);
+      this.playbackAnalyser.getByteTimeDomainData(pDataArray);
+      let pSum = 0;
+      for (let i = 0; i < pBufferLength; i++) {
+        const val = (pDataArray[i] - 128) / 128;
+        pSum += val * val;
+      }
+      playbackRms = Math.sqrt(pSum / pBufferLength);
+    }
+
     // Monitor microphone input during playback to detect new user sounds
-    if (isPlayback && this.micAnalyser) {
+    if (isPlayback && this.micAnalyser && playbackRms > 0) {
       const micBufferLength = this.micAnalyser.frequencyBinCount;
       const micDataArray = new Uint8Array(micBufferLength);
       this.micAnalyser.getByteTimeDomainData(micDataArray);
@@ -439,7 +464,7 @@ export class SoundImproEngine {
       const micRms = Math.sqrt(micSum / micBufferLength);
       
       // Dynamic threshold slightly higher than standard onset to prevent speaker bleed-through, but still very responsive
-      const dynamicThreshold = Math.max(this.onsetThreshold * 1.3, 0.03);
+      const dynamicThreshold = Math.max(this.onsetThreshold * 1.3, 0.035) + playbackRms * 0.40;
       if (micRms > dynamicThreshold) {
         this.skipReplyingAndStartNewRound();
         return;
@@ -448,8 +473,23 @@ export class SoundImproEngine {
 
     // Sound Onset & Silence detection state machine
     if (this.currentState === 'waiting_for_sound') {
-      if (rms > this.onsetThreshold) {
-        // Sound has started! Trigger recording
+      // Filter out the sound of the audible playback of the reply when starting a new sound
+      const dynamicOnsetThreshold = this.onsetThreshold + playbackRms * 0.75;
+
+      if (rms > dynamicOnsetThreshold) {
+        // Sound has started! Trigger recording.
+        // If there was a playing answer in the background, fade it out quickly
+        if (this.activeSourceNode && this.activeGainNode) {
+          const ctx = this.audioContext;
+          if (ctx) {
+            try {
+              this.activeGainNode.gain.cancelScheduledValues(ctx.currentTime);
+              this.activeGainNode.gain.setValueAtTime(this.activeGainNode.gain.value, ctx.currentTime);
+              this.activeGainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.15);
+              this.activeSourceNode.stop(ctx.currentTime + 0.16);
+            } catch (e) {}
+          }
+        }
         this.startRecordingChunks();
       }
     } else if (this.currentState === 'recording_sound') {
@@ -477,6 +517,21 @@ export class SoundImproEngine {
       }
     }
   };
+
+  /**
+   * Public manual recording controllers
+   */
+  public startRecordingManually() {
+    if (this.currentState === 'waiting_for_sound') {
+      this.startRecordingChunks();
+    }
+  }
+
+  public stopRecordingManually() {
+    if (this.currentState === 'recording_sound') {
+      this.stopRecordingChunks();
+    }
+  }
 
   /**
    * Starts capturing chunks and enters recording state
@@ -591,8 +646,9 @@ export class SoundImproEngine {
     // Pitch shifting changes output duration
     const targetLength = Math.max(1, Math.floor(userBuffer.length / settings.pitchRate));
     
-    // Add 4.5 seconds of tail for reverb/delay/echo to decay naturally!
-    const tailSamples = Math.floor(ctx.sampleRate * 4.5);
+    // Add 4.5 seconds (or more if overlapping) of tail for reverb/delay/echo to decay naturally!
+    const extraTailSec = this.overlapDuration > 0 ? (4.5 + this.overlapDuration * 2.0) : 4.5;
+    const tailSamples = Math.floor(ctx.sampleRate * extraTailSec);
     const totalLength = targetLength + tailSamples;
     
     const offlineCtx = new OfflineAudioContext(
@@ -843,6 +899,52 @@ export class SoundImproEngine {
     // 4. Connect to Master output of offline context
     lastNode.connect(offlineCtx.destination);
 
+    // [EFFECT] Granular Overlapping Loop & Random long lasting effects
+    if (this.overlapDuration > 0) {
+      // 1. Randomly enhance long-lasting reverb and delay wet mixes to create a lush, atmospheric background
+      if (settings.reverbWet > 0) {
+        settings.reverbWet = Math.min(1.0, settings.reverbWet + this.overlapDuration * 0.15);
+      }
+      if (settings.delayWet > 0) {
+        settings.delayWet = Math.min(1.0, settings.delayWet + this.overlapDuration * 0.15);
+        settings.delayFeedback = Math.min(0.88, settings.delayFeedback + this.overlapDuration * 0.1);
+      }
+
+      // 2. Loop granular parts of the recording at the end to form a continuous transition
+      const sliceStart = Math.max(0, userBuffer.duration - 0.35);
+      const sliceDuration = Math.min(0.3, userBuffer.duration - sliceStart);
+      
+      if (sliceDuration > 0.05) {
+        const grainCount = Math.floor(this.overlapDuration * 5); // 5 grains per second of overlap
+        for (let g = 0; g < grainCount; g++) {
+          const grainSource = offlineCtx.createBufferSource();
+          grainSource.buffer = userBuffer;
+          // Slight pitch variations for rich texturing
+          grainSource.playbackRate.value = settings.pitchRate * (0.9 + Math.random() * 0.2);
+          
+          const grainGain = offlineCtx.createGain();
+          const grainStartOffset = (targetLength / ctx.sampleRate) + g * 0.22; // staggered timing
+          const volumeScale = Math.max(0.1, 1.0 - (g / grainCount));
+          
+          grainGain.gain.setValueAtTime(0, offlineCtx.currentTime);
+          grainGain.gain.setValueAtTime(0, offlineCtx.currentTime + grainStartOffset);
+          grainGain.gain.linearRampToValueAtTime(0.25 * volumeScale, offlineCtx.currentTime + grainStartOffset + 0.01);
+          grainGain.gain.setValueAtTime(0.25 * volumeScale, offlineCtx.currentTime + grainStartOffset + 0.15);
+          grainGain.gain.linearRampToValueAtTime(0, offlineCtx.currentTime + grainStartOffset + 0.22);
+          
+          grainSource.connect(grainGain);
+          
+          if (finalChain.length > 0) {
+            grainGain.connect(finalChain[0]);
+          } else {
+            grainGain.connect(offlineCtx.destination);
+          }
+          
+          grainSource.start(offlineCtx.currentTime + grainStartOffset, sliceStart, sliceDuration);
+        }
+      }
+    }
+
     // 5. Start source and render
     source.start(0);
     const rendered = await offlineCtx.startRendering();
@@ -899,18 +1001,30 @@ export class SoundImproEngine {
 
     this.changeState('playing_answer', { effects: effectNames });
 
-    // 1. Create Playback Buffer (Clone and reverse if requested)
+    // 1. Create Playback Buffer (Clone and reverse active spoken region only if requested)
     let playbackBuffer = processedBuffer;
     if (this.isReversed) {
       const channels = processedBuffer.numberOfChannels;
-      const length = processedBuffer.length;
       const sampleRate = processedBuffer.sampleRate;
-      const reversedBuffer = ctx.createBuffer(channels, length, sampleRate);
+      
+      // Reverse only the active spoken region (calculated from original duration)
+      // to keep the beautiful decay tail intact at the end! This fixes the reverse silence bug.
+      const activeSec = originalDurationSec / settings.pitchRate;
+      const targetLength = Math.min(processedBuffer.length, Math.floor(sampleRate * activeSec));
+      
+      const reversedBuffer = ctx.createBuffer(channels, processedBuffer.length, sampleRate);
       for (let c = 0; c < channels; c++) {
         const srcData = processedBuffer.getChannelData(c);
         const destData = reversedBuffer.getChannelData(c);
-        destData.set(srcData);
-        Array.prototype.reverse.call(destData);
+        
+        const activeData = srcData.subarray(0, targetLength);
+        const activeReversed = new Float32Array(activeData);
+        activeReversed.reverse();
+        
+        destData.set(activeReversed, 0);
+        if (processedBuffer.length > targetLength) {
+          destData.set(srcData.subarray(targetLength), targetLength);
+        }
       }
       playbackBuffer = reversedBuffer;
     }
@@ -967,6 +1081,17 @@ export class SoundImproEngine {
 
     // Start playback first so we can safely schedule stopping it
     source.start(0);
+
+    // If overlapping is requested, trigger the early transition state change
+    // while keeping the background audio playing and fading beautifully
+    if (!this.isLooping && this.overlapDuration > 0) {
+      const transitionDelayMs = Math.max(100, (maxPlayDuration - this.overlapDuration) * 1000);
+      setTimeout(() => {
+        if (this.currentState === 'playing_answer') {
+          this.changeState('waiting_for_sound');
+        }
+      }, transitionDelayMs);
+    }
 
     if (!this.isLooping) {
       const fadeOutDuration = 0.15;

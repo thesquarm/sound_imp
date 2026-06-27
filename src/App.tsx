@@ -219,6 +219,7 @@ export default function App() {
   const [onsetThreshold, setOnsetThreshold] = useState<number>(22); // mapped to 0.022
   const [silenceThreshold, setSilenceThreshold] = useState<number>(12); // mapped to 0.012
   const [pauseDurationMs, setPauseDurationMs] = useState<number>(1200);
+  const [overlapDuration, setOverlapDuration] = useState<number>(0.5); // overlapping slider
   const [chanceEffects, setChanceEffects] = useState({
     pitch: true,
     reverb: true,
@@ -303,6 +304,7 @@ export default function App() {
     engine.setOnsetThreshold(onsetThreshold / 1000);
     engine.setSilenceThreshold(silenceThreshold / 1000);
     engine.setPauseDurationMs(pauseDurationMs);
+    engine.setOverlapDuration(overlapDuration);
     engine.setEnabledRandomEffects(chanceEffects);
     engine.setDroneVolume(droneVolume / 100);
 
@@ -422,6 +424,13 @@ export default function App() {
     }
   };
 
+  const handleOverlapDurationChange = (val: number) => {
+    setOverlapDuration(val);
+    if (engineRef.current) {
+      engineRef.current.setOverlapDuration(val);
+    }
+  };
+
   // Change active scale & glide frequencies
   const handleScaleChange = (scaleId: string) => {
     setSelectedScaleId(scaleId);
@@ -463,8 +472,14 @@ export default function App() {
   };
 
   const handleCentralNodeClick = () => {
-    if (audioState === 'playing_answer' && engineRef.current) {
+    if (!engineRef.current) return;
+    
+    if (audioState === 'playing_answer') {
       engineRef.current.skipReplyingAndStartNewRound();
+    } else if (audioState === 'waiting_for_sound') {
+      engineRef.current.startRecordingManually();
+    } else if (audioState === 'recording_sound') {
+      engineRef.current.stopRecordingManually();
     }
   };
 
@@ -871,9 +886,13 @@ export default function App() {
                       exit={{ opacity: 0, scale: 0.95 }}
                       className="flex flex-col items-center text-center gap-4"
                     >
-                      <div className="h-14 w-14 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce">
+                      <button
+                        onClick={() => startSession(false)}
+                        title="Click to Start Session"
+                        className="h-14 w-14 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce cursor-pointer hover:bg-[#FAF3D1] transition-all duration-300 active:scale-95 outline-none"
+                      >
                         <Mic className="h-7 w-7 text-zinc-950" />
-                      </div>
+                      </button>
                       <div>
                         <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Make a sound.</h2>
                         <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1.5 leading-relaxed font-bold uppercase tracking-wide">
@@ -909,12 +928,16 @@ export default function App() {
                         {/* State Central Node Core */}
                         <button
                           onClick={handleCentralNodeClick}
-                          disabled={audioState !== 'playing_answer'}
-                          title={audioState === 'playing_answer' ? 'Click to Stop Reply and Start New Round' : undefined}
+                          disabled={audioState === 'initializing' || audioState === 'processing'}
+                          title={
+                            audioState === 'playing_answer' ? 'Click to Stop Reply and Start New Round' :
+                            audioState === 'waiting_for_sound' ? 'Click to Start Recording Manually' :
+                            audioState === 'recording_sound' ? 'Click to Stop Recording Manually' : undefined
+                          }
                           className={`h-24 w-24 rounded-full flex flex-col items-center justify-center text-[#FAF6ED] transition-all duration-500 shadow-md border-2 border-zinc-950 outline-none ${
                             audioState === 'initializing' ? 'bg-zinc-400 cursor-not-allowed' :
-                            audioState === 'waiting_for_sound' ? 'bg-emerald-600 hover:bg-emerald-700 cursor-default animate-pulse' :
-                            audioState === 'recording_sound' ? 'bg-rose-600 scale-105 cursor-default' :
+                            audioState === 'waiting_for_sound' ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer hover:ring-4 hover:ring-emerald-600/25 active:scale-95 animate-pulse' :
+                            audioState === 'recording_sound' ? 'bg-rose-600 scale-105 cursor-pointer hover:ring-4 hover:ring-rose-600/25 active:scale-95' :
                             audioState === 'processing' ? 'bg-amber-500 animate-pulse cursor-not-allowed' :
                             audioState === 'playing_answer' ? 'bg-blue-600 scale-105 hover:bg-blue-700 cursor-pointer active:scale-95 hover:ring-4 hover:ring-blue-600/25' : 'bg-zinc-50 cursor-default'
                           }`}
@@ -922,19 +945,18 @@ export default function App() {
                           {audioState === 'initializing' && <span className="text-[10px] font-mono tracking-widest font-black uppercase">BOOTING</span>}
                           
                           {audioState === 'waiting_for_sound' && (
-                            <div className="flex flex-col items-center gap-1 animate-pulse">
-                              <Mic className="h-5 w-5 text-white" />
-                              <span className="text-[8px] font-mono tracking-widest uppercase">MAKE A SOUND</span>
+                            <div className="flex flex-col items-center gap-1">
+                              <Mic className="h-5 w-5 text-white animate-pulse" />
+                              <span className="text-[8px] font-mono tracking-widest uppercase text-white font-bold">START REC</span>
+                              <span className="text-[6px] font-mono tracking-wider opacity-75 uppercase text-white">OR SPEAK</span>
                             </div>
                           )}
 
                           {audioState === 'recording_sound' && (
                             <div className="flex flex-col items-center gap-0.5">
                               <div className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
-                              <span className="text-[8px] font-mono tracking-widest font-black">RECORDING</span>
-                              <span className="text-[8px] font-mono opacity-90">
-                                {visualData.rms > 0 ? (visualData.rms * 100).toFixed(0) : '0'}% VOL
-                              </span>
+                              <span className="text-[8px] font-mono tracking-widest font-black text-white uppercase">STOP REC</span>
+                              <span className="text-[6px] font-mono tracking-wider opacity-75 uppercase text-white">TAP TO REPLY</span>
                             </div>
                           )}
 
@@ -1003,32 +1025,7 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
-              {/* DIRECT QUICK CONTROLS: LOOP, REVERSE, FILTER */}
-              <div className="w-full mt-3 pt-3 z-10 flex items-center justify-around font-mono text-[9px] md:text-[10px] font-black uppercase text-zinc-950 select-none bg-zinc-950/10 p-2.5 border-2 border-zinc-950/25">
-                <button 
-                  onClick={() => handleLoopingChange(!isLooping)}
-                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isLooping ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
-                >
-                  <span>LOOP</span>
-                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isLooping ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
-                </button>
 
-                <button 
-                  onClick={() => handleReversedChange(!isReversed)}
-                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isReversed ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
-                >
-                  <span>REVERSE</span>
-                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isReversed ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
-                </button>
-
-                <button 
-                  onClick={() => handleFilterEnabledChange(!isFilterEnabled)}
-                  className={`flex items-center gap-1.5 cursor-pointer hover:bg-[#FAF6ED]/80 transition-all px-3 py-1.5 border-2 border-zinc-950 ${isFilterEnabled ? 'bg-[#FAF6ED] shadow-[1px_1px_0px_rgba(0,0,0,1)]' : 'bg-zinc-100/50'}`}
-                >
-                  <span>FILTER</span>
-                  <span className={`h-2.5 w-2.5 rounded-full border border-zinc-950 ${isFilterEnabled ? 'bg-zinc-950 animate-pulse' : 'bg-transparent'}`} />
-                </button>
-              </div>
 
               {/* INTEGRATED SESSION CONTROL DESK */}
               <div className="w-full mt-4 pt-4 border-t-2 border-zinc-950/20 z-10 flex flex-col gap-2">
@@ -1275,6 +1272,23 @@ export default function App() {
                       step="100"
                       value={pauseDurationMs}
                       onChange={(e) => handlePauseDurationChange(parseInt(e.target.value))}
+                      className="w-full h-1 bg-zinc-950/20 appearance-none cursor-pointer py-1.5"
+                      style={{ accentColor: '#000000' }}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1 mt-3">
+                    <div className="flex justify-between">
+                      <span>OVERLAPPING</span>
+                      <span>{overlapDuration.toFixed(1)}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="2.0"
+                      step="0.1"
+                      value={overlapDuration}
+                      onChange={(e) => handleOverlapDurationChange(parseFloat(e.target.value))}
                       className="w-full h-1 bg-zinc-950/20 appearance-none cursor-pointer py-1.5"
                       style={{ accentColor: '#000000' }}
                     />
