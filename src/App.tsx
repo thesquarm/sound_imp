@@ -218,7 +218,7 @@ export default function App() {
   const [isFilterEnabled, setIsFilterEnabled] = useState<boolean>(true);
   const [onsetThreshold, setOnsetThreshold] = useState<number>(22); // mapped to 0.022
   const [silenceThreshold, setSilenceThreshold] = useState<number>(12); // mapped to 0.012
-  const [pauseDurationMs, setPauseDurationMs] = useState<number>(1200);
+  const [pauseDurationMs, setPauseDurationMs] = useState<number>(600);
   const [overlapDuration, setOverlapDuration] = useState<number>(0.5); // overlapping slider
   const [chanceEffects, setChanceEffects] = useState({
     pitch: true,

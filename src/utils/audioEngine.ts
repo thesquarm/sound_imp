@@ -27,7 +27,7 @@ export class SoundImproEngine {
   // Silence detection parameters
   private onsetThreshold = 0.022;       // RMS level above which we start recording
   private silenceThreshold = 0.012;     // RMS level below which we consider it silent
-  private pauseDurationMs = 1200;       // Continuous silent ms needed to trigger pause end
+  private pauseDurationMs = 600;        // Continuous silent ms needed to trigger pause end
   private maxRecordingMs = 12000;       // Max recording length to prevent infinite loops (12s)
   private overlapDuration = 0.5;        // Continuous sound overlap in seconds (0 to 2s)
   
