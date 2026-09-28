@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, 
   Square, 
@@ -9,6 +8,7 @@ import {
   HelpCircle, 
   History, 
   AlertTriangle, 
+  AlertCircle,
   Flame, 
   Music,
   Maximize2,
@@ -250,6 +250,22 @@ export default function App() {
     raw: string;
     processed: string;
   } | null>(null);
+  const downloadUrlsRef = useRef<{ whole: string; raw: string; processed: string } | null>(null);
+  const roundsRef = useRef<ImprovRound[]>([]);
+
+  // Accessible inline error banner state
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const errorTimeoutRef = useRef<any>(null);
+
+  const showErrorMessage = (msg: string) => {
+    setInlineError(msg);
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+    }
+    errorTimeoutRef.current = setTimeout(() => {
+      setInlineError(null);
+    }, 6000);
+  };
 
   const droneOscsRef = useRef<{ [key: string]: { osc: OscillatorNode; gain: GainNode } }>({});
   
@@ -265,6 +281,11 @@ export default function App() {
   });
 
   const engineRef = useRef<SoundImproEngine | null>(null);
+
+  // Keep roundsRef synchronized for unmount cleanup
+  useEffect(() => {
+    roundsRef.current = rounds;
+  }, [rounds]);
 
   // Initialize engine
   useEffect(() => {
@@ -312,6 +333,27 @@ export default function App() {
 
     // Cleanup on unmount
     return () => {
+      // Revoke any export download URLs
+      if (downloadUrlsRef.current) {
+        if (downloadUrlsRef.current.whole) URL.revokeObjectURL(downloadUrlsRef.current.whole);
+        if (downloadUrlsRef.current.raw) URL.revokeObjectURL(downloadUrlsRef.current.raw);
+        if (downloadUrlsRef.current.processed) URL.revokeObjectURL(downloadUrlsRef.current.processed);
+        downloadUrlsRef.current = null;
+      }
+
+      // Revoke any created round userAudioUrls
+      roundsRef.current.forEach(r => {
+        if (r.userAudioUrl) {
+          try {
+            URL.revokeObjectURL(r.userAudioUrl);
+          } catch (e) {}
+        }
+      });
+
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
+
       if (engineRef.current) {
         engineRef.current.stop();
       }
@@ -521,7 +563,7 @@ export default function App() {
   const toggleDronePad = (padId: string, freq: number) => {
     const ctx = engineRef.current?.getAudioContext();
     if (!ctx) {
-      alert("Please press 'Start Session' first to power on the audio engine workbench!");
+      showErrorMessage("Please press 'Start Session' first to power on the audio engine workbench!");
       return;
     }
 
@@ -653,35 +695,67 @@ export default function App() {
     if (wasRecording && finalCount > 0) {
       setRecordedCount(finalCount);
       
+      // Revoke any previously generated download URLs first
+      if (downloadUrlsRef.current) {
+        if (downloadUrlsRef.current.whole) URL.revokeObjectURL(downloadUrlsRef.current.whole);
+        if (downloadUrlsRef.current.raw) URL.revokeObjectURL(downloadUrlsRef.current.raw);
+        if (downloadUrlsRef.current.processed) URL.revokeObjectURL(downloadUrlsRef.current.processed);
+        downloadUrlsRef.current = null;
+      }
+
       const wholeUrl = blobs.whole ? URL.createObjectURL(blobs.whole) : '';
       const rawUrl = blobs.raw ? URL.createObjectURL(blobs.raw) : '';
       const processedUrl = blobs.processed ? URL.createObjectURL(blobs.processed) : '';
       
-      setDownloadUrls({
+      const newUrls = {
         whole: wholeUrl,
         raw: rawUrl,
         processed: processedUrl
-      });
+      };
+      downloadUrlsRef.current = newUrls;
+      setDownloadUrls(newUrls);
       setShowDownloadModal(true);
     }
   };
 
   const closeDownloadModal = () => {
     setShowDownloadModal(false);
-    if (downloadUrls) {
-      if (downloadUrls.whole) URL.revokeObjectURL(downloadUrls.whole);
-      if (downloadUrls.raw) URL.revokeObjectURL(downloadUrls.raw);
-      if (downloadUrls.processed) URL.revokeObjectURL(downloadUrls.processed);
-      setDownloadUrls(null);
+    if (downloadUrlsRef.current) {
+      if (downloadUrlsRef.current.whole) URL.revokeObjectURL(downloadUrlsRef.current.whole);
+      if (downloadUrlsRef.current.raw) URL.revokeObjectURL(downloadUrlsRef.current.raw);
+      if (downloadUrlsRef.current.processed) URL.revokeObjectURL(downloadUrlsRef.current.processed);
+      downloadUrlsRef.current = null;
     }
+    setDownloadUrls(null);
   };
 
-  // Clear session rounds
+  // Clear session rounds and revoke userAudioUrls
   const clearRounds = () => {
+    rounds.forEach(r => {
+      if (r.userAudioUrl) {
+        try {
+          URL.revokeObjectURL(r.userAudioUrl);
+        } catch (e) {}
+      }
+    });
     setRounds([]);
     if (engineRef.current) {
       engineRef.current.clearSessionBuffers();
       setRecordedCount(0);
+    }
+  };
+
+  // Remove a single round and revoke its userAudioUrl
+  const deleteRound = (roundId: string) => {
+    const roundToDelete = rounds.find(r => r.id === roundId);
+    if (roundToDelete?.userAudioUrl) {
+      try {
+        URL.revokeObjectURL(roundToDelete.userAudioUrl);
+      } catch (e) {}
+    }
+    setRounds(prev => prev.filter(r => r.id !== roundId));
+    if (engineRef.current) {
+      engineRef.current.removeRoundBuffer(roundId);
     }
   };
 
@@ -751,9 +825,7 @@ export default function App() {
 
         {/* Dynamic Inspiration suggestions container */}
         {showInspirationBox && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             className="max-w-md w-full bg-[#FAF3D1] border-2 border-zinc-950 p-4 mt-5 text-center text-xs font-mono text-zinc-900 shadow-xs retro-shadow-sm rounded-none min-h-[220px] flex flex-col justify-between"
           >
             <div>
@@ -808,18 +880,37 @@ export default function App() {
                 />
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
       </header>
 
       {/* Main Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
         
+        {/* Inline Accessible Notification Banner */}
+        {inlineError && (
+          <div 
+            role="alert" 
+            aria-live="assertive"
+            className="p-4 bg-[#FAF3D1] border-2 border-zinc-950 text-zinc-950 text-xs flex items-center justify-between gap-3 retro-shadow-sm rounded-none"
+          >
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="h-5 w-5 text-studio-accent shrink-0" aria-hidden="true" />
+              <span className="font-mono font-bold leading-relaxed">{inlineError}</span>
+            </div>
+            <button
+              onClick={() => setInlineError(null)}
+              className="p-1 hover:bg-zinc-200 border border-zinc-950 font-mono text-[10px] uppercase font-bold shrink-0 cursor-pointer"
+              aria-label="Dismiss error notice"
+            >
+              &times; Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Error notification if mic fails */}
         {micError && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div 
             className="p-4 bg-red-100 border-2 border-zinc-950 text-red-950 text-xs flex gap-3 items-start retro-shadow-sm rounded-none"
           >
             <AlertTriangle className="h-5 w-5 text-red-700 shrink-0 mt-0.5" />
@@ -843,7 +934,7 @@ export default function App() {
                 </a>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
             {/* Two-column bento grid following the premium tabletop synthesis gear layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -876,39 +967,32 @@ export default function App() {
 
               {/* Top/Center content */}
               <div className="w-full flex flex-col items-center justify-center h-[350px] md:h-[370px] z-10 py-4 relative">
-                <AnimatePresence mode="wait">
-                  {audioState === 'idle' ? (
-                    // IDLE VIEW: Start Session Trigger
-                    <motion.div 
-                      key="idle"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="flex flex-col items-center text-center gap-4"
+                {audioState === 'idle' ? (
+                  // IDLE VIEW: Start Session Trigger
+                  <div 
+                    key="idle"
+                    className="flex flex-col items-center text-center gap-4"
+                  >
+                    <button
+                      onClick={() => startSession(false)}
+                      title="Click to Start Session"
+                      className="h-14 w-14 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce cursor-pointer hover:bg-[#FAF3D1] transition-all duration-300 active:scale-95 outline-none"
                     >
-                      <button
-                        onClick={() => startSession(false)}
-                        title="Click to Start Session"
-                        className="h-14 w-14 rounded-full bg-white flex items-center justify-center text-zinc-950 border-2 border-dashed border-zinc-950 animate-bounce cursor-pointer hover:bg-[#FAF3D1] transition-all duration-300 active:scale-95 outline-none"
-                      >
-                        <Mic className="h-7 w-7 text-zinc-950" />
-                      </button>
-                      <div>
-                        <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Make a sound.</h2>
-                        <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1.5 leading-relaxed font-bold uppercase tracking-wide">
-                          Speak, sing, play or tap!
-                        </p>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    // ACTIVE RUNNING VIEW: Displays current state cues
-                    <motion.div 
-                      key="active"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="w-full flex flex-col items-center gap-5"
-                    >
+                      <Mic className="h-7 w-7 text-zinc-950" />
+                    </button>
+                    <div>
+                      <h2 className="font-display font-black text-xl uppercase tracking-tight text-zinc-950">Make a sound.</h2>
+                      <p className="text-xs text-zinc-900 font-mono max-w-[360px] mt-1.5 leading-relaxed font-bold uppercase tracking-wide">
+                        Speak, sing, play or tap!
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  // ACTIVE RUNNING VIEW: Displays current state cues
+                  <div 
+                    key="active"
+                    className="w-full flex flex-col items-center gap-5"
+                  >
                       {/* The Giant Audio Pulse Ring */}
                       <div className="relative flex items-center justify-center h-36 w-36">
                         
@@ -1020,9 +1104,8 @@ export default function App() {
                           REC ACTIVE &bull; {recordedCount} ROUND{recordedCount !== 1 ? 'S' : ''} SAVED
                         </div>
                       )}
-                    </motion.div>
+                    </div>
                   )}
-                </AnimatePresence>
               </div>
 
 
@@ -1303,11 +1386,25 @@ export default function App() {
                     <span>Upload voice / audio file</span>
                     <input
                       type="file"
-                      accept="audio/*"
+                      accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm"
                       className="hidden"
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
+                        e.target.value = ''; // Reset input to allow selecting same file again
+
+                        const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB limit
+                        if (file.size > MAX_UPLOAD_BYTES) {
+                          showErrorMessage(`Audio file exceeds the 50 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB). Please select a smaller file.`);
+                          return;
+                        }
+
+                        const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|webm)$/i.test(file.name);
+                        if (!isAudio) {
+                          showErrorMessage('Please select a valid audio file (.wav, .mp3, .ogg, .m4a, .webm, .flac).');
+                          return;
+                        }
+
                         try {
                           if (audioState === 'idle') {
                             await startSession(false);
@@ -1315,8 +1412,9 @@ export default function App() {
                           if (engineRef.current) {
                             await engineRef.current.processCustomAudioFile(file);
                           }
-                        } catch (err) {
+                        } catch (err: any) {
                           console.error(err);
+                          showErrorMessage(err?.message || 'Failed to process custom audio file.');
                         }
                       }}
                     />
@@ -1338,6 +1436,8 @@ export default function App() {
               <ImprovHistory 
                 rounds={rounds} 
                 onClear={clearRounds} 
+                onDeleteRound={deleteRound}
+                onError={showErrorMessage}
                 engine={engineRef.current} 
                 audioState={audioState} 
               />
@@ -1400,10 +1500,8 @@ export default function App() {
           {/* Scale Voice Pads representing the 5 scale notes */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mt-1">
             {extraPads.map((pad) => (
-              <motion.div
+              <div
                 key={pad.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
                 className={`${pad.colorClass} border-2 border-zinc-950 p-4 retro-shadow-xs flex flex-col gap-3 relative rounded-none`}
               >
                 <div className="flex items-center justify-between border-b border-zinc-950/15 pb-2">
@@ -1429,7 +1527,7 @@ export default function App() {
                 <div className="text-[9px] font-mono font-black text-zinc-950 text-center uppercase tracking-wider">
                   {pad.isPlaying ? "🔊 Stream Active" : "🔇 Powered Off"}
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>
@@ -1437,98 +1535,90 @@ export default function App() {
       </main>
 
       {/* Export Window Modal Overlay with working direct anchors */}
-      <AnimatePresence>
-        {showDownloadModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
-              exit={{ opacity: 0 }}
-              onClick={closeDownloadModal}
-              className="absolute inset-0 bg-zinc-950"
-            />
-            
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-[#FAF6ED] border-4 border-zinc-950 p-6 max-w-md w-full retro-shadow-lg text-center relative z-10 rounded-none flex flex-col gap-5"
-            >
-              <div className="flex items-center justify-center h-14 w-14 rounded-full bg-zinc-950 border-2 border-zinc-950 mx-auto text-white shadow-xs">
-                <Music className="h-7 w-7 text-[#FAF6ED]" />
-              </div>
+      {showDownloadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            onClick={closeDownloadModal}
+            className="absolute inset-0 bg-zinc-950/60"
+          />
+          
+          <div 
+            className="bg-[#FAF6ED] border-4 border-zinc-950 p-6 max-w-md w-full retro-shadow-lg text-center relative z-10 rounded-none flex flex-col gap-5"
+          >
+            <div className="flex items-center justify-center h-14 w-14 rounded-full bg-zinc-950 border-2 border-zinc-950 mx-auto text-white shadow-xs">
+              <Music className="h-7 w-7 text-[#FAF6ED]" />
+            </div>
 
-              <div>
-                <h2 className="font-display font-black text-2xl uppercase tracking-tight text-zinc-950">
-                  EXPORT SESSION AUDIO
-                </h2>
-                <div className="h-1 w-20 bg-zinc-950 mx-auto mt-2" />
-                <p className="text-xs text-zinc-700 font-mono mt-3 leading-relaxed">
-                  You have successfully captured <span className="font-bold text-zinc-950 underline">{recordedCount}</span> rounds of back-and-forth improvisation! Click the WAV buttons to download:
-                </p>
-              </div>
+            <div>
+              <h2 className="font-display font-black text-2xl uppercase tracking-tight text-zinc-950">
+                EXPORT SESSION AUDIO
+              </h2>
+              <div className="h-1 w-20 bg-zinc-950 mx-auto mt-2" />
+              <p className="text-xs text-zinc-700 font-mono mt-3 leading-relaxed">
+                You have successfully captured <span className="font-bold text-zinc-950 underline">{recordedCount}</span> rounds of back-and-forth improvisation! Click the WAV buttons to download:
+              </p>
+            </div>
 
-              {/* Direct clickable anchor buttons */}
-              <div className="flex flex-col gap-3 mt-1">
-                
-                {/* 1. Whole session */}
-                <a
-                  href={downloadUrls?.whole || '#'}
-                  download={`sound_impro_session_full_${Date.now()}.wav`}
-                  className={`bg-zinc-950 hover:bg-zinc-900 text-white border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
-                    !downloadUrls?.whole ? 'pointer-events-none opacity-50' : 'cursor-pointer'
-                  }`}
-                >
-                  <span className="text-left">
-                    <span className="block font-black text-[13px] uppercase tracking-tight">1. FULL CONTINUOUS SESSION</span>
-                    <span className="block text-[10px] text-zinc-400 font-normal">Alternating User sounds & Effects</span>
-                  </span>
-                  <span className="bg-white text-zinc-950 text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
-                </a>
-
-                {/* 2. Raw sounds */}
-                <a
-                  href={downloadUrls?.raw || '#'}
-                  download={`sound_impro_my_raw_sounds_${Date.now()}.wav`}
-                  className={`bg-white hover:bg-zinc-50 text-zinc-950 border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
-                    !downloadUrls?.raw ? 'pointer-events-none opacity-50' : 'cursor-pointer'
-                  }`}
-                >
-                  <span className="text-left">
-                    <span className="block font-black text-[13px] uppercase tracking-tight">2. YOUR MIC RECORDINGS ONLY</span>
-                    <span className="block text-[10px] text-zinc-500 font-normal">Pure un-processed user audio</span>
-                  </span>
-                  <span className="bg-zinc-950 text-white text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
-                </a>
-
-                {/* 3. Processed sounds */}
-                <a
-                  href={downloadUrls?.processed || '#'}
-                  download={`sound_impro_processed_answers_${Date.now()}.wav`}
-                  className={`bg-white hover:bg-zinc-50 text-zinc-950 border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
-                    !downloadUrls?.processed ? 'pointer-events-none opacity-50' : 'cursor-pointer'
-                  }`}
-                >
-                  <span className="text-left">
-                    <span className="block font-black text-[13px] uppercase tracking-tight">3. COMPUTER REPLIES ONLY</span>
-                    <span className="block text-[10px] text-zinc-500 font-normal">Concatenated machine outputs</span>
-                  </span>
-                  <span className="bg-zinc-950 text-white text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
-                </a>
-
-              </div>
-
-              {/* Dismiss Button */}
-              <button
-                onClick={closeDownloadModal}
-                className="mt-2 text-xs font-mono font-bold text-zinc-600 hover:text-zinc-950 underline cursor-pointer"
+            {/* Direct clickable anchor buttons */}
+            <div className="flex flex-col gap-3 mt-1">
+              
+              {/* 1. Whole session */}
+              <a
+                href={downloadUrls?.whole || '#'}
+                download={`sound_impro_session_full_${Date.now()}.wav`}
+                className={`bg-zinc-950 hover:bg-zinc-900 text-white border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
+                  !downloadUrls?.whole ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                }`}
               >
-                Close and Keep Improvising &rarr;
-              </button>
-            </motion.div>
+                <span className="text-left">
+                  <span className="block font-black text-[13px] uppercase tracking-tight">1. FULL CONTINUOUS SESSION</span>
+                  <span className="block text-[10px] text-zinc-400 font-normal">Alternating User sounds & Effects</span>
+                </span>
+                <span className="bg-white text-zinc-950 text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
+              </a>
+
+              {/* 2. Raw sounds */}
+              <a
+                href={downloadUrls?.raw || '#'}
+                download={`sound_impro_my_raw_sounds_${Date.now()}.wav`}
+                className={`bg-white hover:bg-zinc-50 text-zinc-950 border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
+                  !downloadUrls?.raw ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                }`}
+              >
+                <span className="text-left">
+                  <span className="block font-black text-[13px] uppercase tracking-tight">2. YOUR MIC RECORDINGS ONLY</span>
+                  <span className="block text-[10px] text-zinc-500 font-normal">Pure un-processed user audio</span>
+                </span>
+                <span className="bg-zinc-950 text-white text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
+              </a>
+
+              {/* 3. Processed sounds */}
+              <a
+                href={downloadUrls?.processed || '#'}
+                download={`sound_impro_processed_answers_${Date.now()}.wav`}
+                className={`bg-white hover:bg-zinc-50 text-zinc-950 border-2 border-zinc-950 py-3 px-4 font-mono text-xs font-bold retro-shadow-sm flex items-center justify-between transition-all group ${
+                  !downloadUrls?.processed ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                }`}
+              >
+                <span className="text-left">
+                  <span className="block font-black text-[13px] uppercase tracking-tight">3. COMPUTER REPLIES ONLY</span>
+                  <span className="block text-[10px] text-zinc-500 font-normal">Concatenated machine outputs</span>
+                </span>
+                <span className="bg-zinc-950 text-white text-[10px] px-2.5 py-1 border border-zinc-950 font-bold uppercase shrink-0">WAV</span>
+              </a>
+
+            </div>
+
+            {/* Dismiss Button */}
+            <button
+              onClick={closeDownloadModal}
+              className="mt-2 text-xs font-mono font-bold text-zinc-600 hover:text-zinc-950 underline cursor-pointer"
+            >
+              Close and Keep Improvising &rarr;
+            </button>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
 
       {/* Clean, minimalist footer containing the relocated soundcomp link */}
       <footer className="py-8 px-4 text-center text-xs font-mono text-zinc-600 mt-auto select-none">
@@ -1541,6 +1631,9 @@ export default function App() {
               <a href="mailto:p.stade@mh-freiburg.de" className="underline hover:text-zinc-950">
                 p.stade@mh-freiburg.de
               </a>
+            </span>
+            <span className="text-[10px] text-emerald-800 block mt-1 font-semibold">
+              🔒 GDPR Compliant: 100% client-side Web Audio. Self-hosted fonts, zero cookies, zero external trackers, no server audio storage.
             </span>
           </div>
 

@@ -1,20 +1,42 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ImprovRound, AudioState } from '../types';
-import { Play, Pause, Trash2, Clock, Music, Repeat, Mic, Volume2 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Play, Pause, Trash2, Clock, Music, Repeat, Mic, Volume2, AlertCircle } from 'lucide-react';
 
 interface ImprovHistoryProps {
   rounds: ImprovRound[];
   onClear: () => void;
+  onDeleteRound?: (roundId: string) => void;
+  onError?: (msg: string) => void;
   engine: any;
   audioState: AudioState;
 }
 
-export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, engine, audioState }) => {
+export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, onDeleteRound, onError, engine, audioState }) => {
   const [playingRaw, setPlayingRaw] = useState<Record<string, boolean>>({});
   const [playingProcessed, setPlayingProcessed] = useState<Record<string, boolean>>({});
   const [loopingRounds, setLoopingRounds] = useState<Record<string, boolean>>({});
+  const [internalError, setInternalError] = useState<string | null>(null);
   const audioPlayersRef = useRef<Record<string, HTMLAudioElement>>({});
+
+  useEffect(() => {
+    return () => {
+      // Pause any active HTML5 audio players on unmount
+      (Object.values(audioPlayersRef.current) as HTMLAudioElement[]).forEach(player => {
+        try {
+          player.pause();
+        } catch (e) {}
+      });
+      audioPlayersRef.current = {};
+    };
+  }, []);
+
+  const reportError = (msg: string) => {
+    if (onError) {
+      onError(msg);
+    } else {
+      setInternalError(msg);
+    }
+  };
 
   const toggleLoop = (roundId: string) => {
     const isNowLooping = !loopingRounds[roundId];
@@ -47,6 +69,13 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
     setPlayingProcessed(prev => ({ ...prev, [roundId]: false }));
   };
 
+  const handleDeleteRound = (roundId: string) => {
+    stopAllForRound(roundId);
+    if (onDeleteRound) {
+      onDeleteRound(roundId);
+    }
+  };
+
   const handlePlayRaw = (roundId: string, url: string) => {
     const isCurrentlyPlayingRaw = !!playingRaw[roundId];
     const isLoopEnabled = !!loopingRounds[roundId];
@@ -74,7 +103,7 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
           delete audioPlayersRef.current[roundId];
         };
       } else {
-        alert("Audio source URL not available for this legacy round.");
+        reportError("Audio source URL not available for this round.");
         setPlayingRaw(prev => ({ ...prev, [roundId]: false }));
       }
     }
@@ -91,7 +120,7 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
       stopAllForRound(roundId);
 
       if (audioState === 'idle') {
-        alert("Please click 'Start Session' first to activate the audio engine and listen to processed replication buffers!");
+        reportError("Please click 'Start Session' first to activate the audio engine and listen to processed replication buffers!");
         return;
       }
 
@@ -121,6 +150,16 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
 
   return (
     <div className="flex flex-col gap-4">
+      {internalError && (
+        <div role="alert" aria-live="assertive" className="p-2.5 bg-rose-50 border-2 border-rose-950 text-rose-950 text-[11px] font-mono flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="h-3.5 w-3.5 text-rose-700 shrink-0" aria-hidden="true" />
+            <span>{internalError}</span>
+          </div>
+          <button onClick={() => setInternalError(null)} className="font-bold underline ml-2 cursor-pointer text-xs" aria-label="Dismiss">&times;</button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-b-2 border-zinc-950 pb-2">
         <h3 className="font-display font-black text-zinc-950 tracking-tight flex items-center gap-2 text-base uppercase">
           <Music className="h-4.5 w-4.5" />
@@ -150,11 +189,8 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
           const isLooping = !!loopingRounds[round.id];
 
           return (
-            <motion.div
+            <div
               key={round.id}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: idx * 0.05 }}
               className="flex flex-col gap-2.5 p-3.5 bg-white border-2 border-zinc-950 hover:bg-[#FAF6ED] transition-all relative rounded-none retro-shadow"
             >
               {/* Round header */}
@@ -168,9 +204,21 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
                     {round.timestamp}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono font-black text-zinc-600">
-                  Length: {round.durationSec}s
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-black text-zinc-600">
+                    Length: {round.durationSec}s
+                  </span>
+                  {onDeleteRound && (
+                    <button
+                      onClick={() => handleDeleteRound(round.id)}
+                      title="Remove this round from history"
+                      className="text-zinc-400 hover:text-rose-600 p-0.5 transition-colors cursor-pointer"
+                      aria-label={`Delete round ${roundNum}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Effects list */}
@@ -255,7 +303,7 @@ export const ImprovHistory: React.FC<ImprovHistoryProps> = ({ rounds, onClear, e
                   </button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

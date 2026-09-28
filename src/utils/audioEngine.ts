@@ -28,17 +28,19 @@ export class SoundImproEngine {
   private onsetThreshold = 0.022;       // RMS level above which we start recording
   private silenceThreshold = 0.012;     // RMS level below which we consider it silent
   private pauseDurationMs = 600;        // Continuous silent ms needed to trigger pause end
-  private maxRecordingMs = 12000;       // Max recording length to prevent infinite loops (12s)
+  private maxRecordingMs = 60000;       // Max recording length to prevent memory leaks (60s)
   private overlapDuration = 0.5;        // Continuous sound overlap in seconds (0 to 2s)
   
   // Real-time tracking
   private isAnalyzing = false;
   private silenceStartTime: number | null = null;
   private recordingStartTime: number | null = null;
+  private maxRecordingTimeout: any = null;
   private activeSourceNode: AudioBufferSourceNode | null = null;
   private activeGainNode: GainNode | null = null;
   private lastUserBlobUrl: string | null = null;
   private createdBlobUrls: string[] = [];
+  private roundBlobUrls = new Map<string, string>();
   private activeDroneFreqs: number[] = [];
   private droneVolume: number = 0.5; // range 0 to 1
   private roundBuffers = new Map<string, { userBuffer: AudioBuffer; processedBuffer: AudioBuffer }>();
@@ -276,6 +278,30 @@ export class SoundImproEngine {
     this.sessionBuffers = [];
     this.roundBuffers.clear();
     this.stopAllHistoryBuffers();
+    this.createdBlobUrls.forEach(url => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {}
+    });
+    this.createdBlobUrls = [];
+    this.roundBlobUrls.clear();
+    this.lastUserBlobUrl = null;
+  }
+
+  public removeRoundBuffer(roundId: string) {
+    this.roundBuffers.delete(roundId);
+    this.stopHistoryBuffer(roundId);
+    const url = this.roundBlobUrls.get(roundId);
+    if (url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {}
+      this.roundBlobUrls.delete(roundId);
+      this.createdBlobUrls = this.createdBlobUrls.filter(u => u !== url);
+      if (this.lastUserBlobUrl === url) {
+        this.lastUserBlobUrl = null;
+      }
+    }
   }
 
   public getSessionBuffersCount(): number {
@@ -287,6 +313,10 @@ export class SoundImproEngine {
   }
 
   public async processCustomAudioFile(blob: Blob) {
+    const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB limit
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      throw new Error(`Audio file exceeds the 50 MB limit (${(blob.size / (1024 * 1024)).toFixed(1)} MB).`);
+    }
     if (this.currentState === 'idle') {
       await this.start();
     }
@@ -377,6 +407,11 @@ export class SoundImproEngine {
     }
 
     // Close AudioContext
+    if (this.maxRecordingTimeout) {
+      clearTimeout(this.maxRecordingTimeout);
+      this.maxRecordingTimeout = null;
+    }
+
     if (this.audioContext) {
       try {
         this.audioContext.close();
@@ -391,6 +426,7 @@ export class SoundImproEngine {
       } catch (e) {}
     });
     this.createdBlobUrls = [];
+    this.roundBlobUrls.clear();
     this.lastUserBlobUrl = null;
 
     this.stopAllHistoryBuffers();
@@ -543,6 +579,17 @@ export class SoundImproEngine {
     this.silenceStartTime = null;
     this.recordingStartTime = Date.now();
     
+    // Safety timer: enforce 60s max recording duration even if requestAnimationFrame loop throttles
+    if (this.maxRecordingTimeout) {
+      clearTimeout(this.maxRecordingTimeout);
+      this.maxRecordingTimeout = null;
+    }
+    this.maxRecordingTimeout = setTimeout(() => {
+      if (this.currentState === 'recording_sound') {
+        this.stopRecordingChunks();
+      }
+    }, this.maxRecordingMs);
+    
     try {
       this.mediaRecorder = new MediaRecorder(this.mediaStream);
       this.mediaRecorder.ondataavailable = (event) => {
@@ -568,6 +615,11 @@ export class SoundImproEngine {
    * Stops the active media recorder
    */
   private stopRecordingChunks() {
+    if (this.maxRecordingTimeout) {
+      clearTimeout(this.maxRecordingTimeout);
+      this.maxRecordingTimeout = null;
+    }
+
     if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
       try {
         this.mediaRecorder.stop();
@@ -621,6 +673,7 @@ export class SoundImproEngine {
       // Generate a stable, unique roundId and register it in roundBuffers so it is always play-backable
       const roundId = Math.random().toString(36).substring(2, 9);
       this.roundBuffers.set(roundId, { userBuffer: rawBuffer, processedBuffer });
+      this.roundBlobUrls.set(roundId, url);
 
       // Trigger pre-rendered direct playback (ensures perfect fidelity!)
       this.playProcessedBufferDirect(processedBuffer, rawBuffer.duration, settings, names, roundId, url);

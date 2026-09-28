@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Mic, Volume2, Headphones, Activity } from 'lucide-react';
+import { Sparkles, Mic, Volume2, Headphones, Activity, ShieldCheck } from 'lucide-react';
 
 export const SoundImproHelp: React.FC = () => {
   return (
@@ -68,6 +68,15 @@ export const SoundImproHelp: React.FC = () => {
         <div className="font-mono text-[11px] leading-relaxed">
           <span className="font-bold text-zinc-950 block mb-0.5">Pro Performance Tips:</span>
           Use headphones to prevent the playback audio from triggering the mic again in a feedback loop. Find a quiet room and move the sliders to warp the answers!
+        </div>
+      </div>
+
+      {/* Privacy & GDPR Data Protection Notice */}
+      <div className="bg-[#EEF7F2] rounded-lg p-3.5 border-2 border-emerald-900/25 text-xs text-emerald-950 flex items-start gap-2.5">
+        <ShieldCheck className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
+        <div className="font-mono text-[11px] leading-relaxed">
+          <span className="font-bold text-zinc-950 block mb-0.5 uppercase tracking-wide">Privacy & GDPR Compliance:</span>
+          100% self-contained and client-side. All audio capturing, DSP pitch-shifting, sound synthesis, and WAV file generation execute strictly inside your local browser via the Web Audio API. No microphone recordings, audio files, or telemetry are ever uploaded or transmitted to any server. Fonts are self-hosted locally, and zero tracking cookies or third-party analytics are used.
         </div>
       </div>
     </div>
